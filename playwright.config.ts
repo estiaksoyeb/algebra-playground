@@ -42,6 +42,11 @@ export default defineConfig({
     url: origin,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
+    // Playwright hides the server's stdout by default, which turns any startup problem into
+    // a silent 180s "Timed out waiting ... from config.webServer". Pipe both streams so the
+    // reason (port conflict, bad base, crash) is visible in CI logs.
+    stderr: 'pipe',
+    stdout: 'pipe',
     env: { BASE_PATH: basePath },
   },
 });

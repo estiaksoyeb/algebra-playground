@@ -49,6 +49,9 @@ jobs:
           E2E_BASE_PATH: /${{ github.event.repository.name }}/
           E2E_SKIP_BUILD: '1'
           CI: 'true'
+          # Surface the webServer child's stdout/stderr (Playwright hides stdout by default),
+          # so a failed startup shows why instead of a silent 180s timeout.
+          DEBUG: 'pw:webserver'
       - name: Verify the service worker was versioned
         run: test -s dist/sw.js && test -s dist/sw-version.txt && grep -q "algebra-playground-" dist/sw.js
       - uses: actions/upload-pages-artifact@v3
