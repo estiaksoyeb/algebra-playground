@@ -33,18 +33,22 @@ jobs:
         run: npx vitest run
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-      - name: End-to-end tests (production build served from the repo subpath)
-        run: npx playwright test
+      # Build once, before Playwright starts, so the E2E webServer timeout only covers
+      # serving the site. Building inside Playwright's webServer command made CI reach the
+      # 180s timeout while still compiling.
+      - name: Build with the repository subpath
+        run: npx vite build
         env:
           # BASE_PATH must match the repository name for project pages. For a user or
           # organisation site (https://<user>.github.io) change both values to "/" here.
           BASE_PATH: /${{ github.event.repository.name }}/
-          E2E_BASE_PATH: /${{ github.event.repository.name }}/
-          CI: 'true'
-      - name: Build for Pages
-        run: npx vite build
+      - name: End-to-end tests (production build served from the repo subpath)
+        run: npx playwright test
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+          E2E_BASE_PATH: /${{ github.event.repository.name }}/
+          E2E_SKIP_BUILD: '1'
+          CI: 'true'
       - name: Verify the service worker was versioned
         run: test -s dist/sw.js && test -s dist/sw-version.txt && grep -q "algebra-playground-" dist/sw.js
       - uses: actions/upload-pages-artifact@v3

@@ -33,7 +33,12 @@ export default defineConfig({
     { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } },
   ],
   webServer: {
-    command: `npx vite build && npx vite preview --port ${port} --strictPort`,
+    // Build separately from `preview`: the timeout below then only covers starting the
+    // server. When the build ran inside this command, CI occasionally spent the whole
+    // 180s budget compiling and Playwright reported "Timed out waiting ... from
+    // config.webServer" before the site was ever reachable. Set `E2E_SKIP_BUILD=1` when
+    // the caller has already produced `dist/` (the deploy workflow does exactly that).
+    command: `${process.env.E2E_SKIP_BUILD ? '' : 'npx vite build && '}npx vite preview --port ${port} --strictPort`,
     url: origin,
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
