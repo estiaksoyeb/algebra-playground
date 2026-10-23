@@ -37,20 +37,30 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
-      # `--with-deps` runs apt-get update + install of Chromium's system libraries. The
-      # ubuntu-latest image already ships them, and that apt call is the slowest and least
-      # predictable step we have (22s normally, but a stalled mirror once took 637s and
-      # re-ran every job). `--dry-run` verifies the libraries are still present and fails
-      # with a named package instead of a mystery browser-launch error if they are not.
-      # The retry guards the browser download against transient network failures.
+      # `--with-deps` runs apt-get update + install for Chromium's system libraries. That apt
+      # call is the slowest and least predictable step we have (22s normally, but a stalled
+      # mirror once took 637s). A cache hit skips it, which is safe as long as the browser can
+      # actually launch -- so assert that directly instead of comparing package lists.
+      #
+      # Do NOT gate on `install-deps --dry-run`: it demands every optional package, including
+      # font and x11 extras (fonts-unifont, xfonts-cyrillic, ...) that current ubuntu-latest
+      # images no longer preinstall. That check failed the build the first time the browser
+      # cache hit, on fonts Chromium does not need.
+      #
+      # The fallback re-runs with `--with-deps` if the browser cannot start, so a missing
+      # library self-heals rather than failing the deploy.
       - name: Install Playwright Chromium
         run: |
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
             npx playwright install chromium
           else
-            npx playwright install --with-deps chromium || npx playwright install chromium
+            npx playwright install --with-deps chromium
           fi
-          npx playwright install-deps chromium --dry-run
+          if ! node -e "const {chromium}=require('playwright'); chromium.launch().then(b=>b.close()).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1)})"; then
+            echo "Chromium failed to launch; installing system dependencies and retrying."
+            npx playwright install --with-deps chromium
+            node -e "const {chromium}=require('playwright'); chromium.launch().then(b=>b.close()).then(()=>process.exit(0),e=>{console.error(e.message);process.exit(1)})"
+          fi
       - name: Typecheck and unit tests
         run: npx tsc -b && npx vitest run
       # Build once: the same `dist/` is served to Playwright and uploaded to Pages.
