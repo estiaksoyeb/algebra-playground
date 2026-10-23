@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Algebra Playground</title>
+    <meta
+      name="description"
+      content="Learn algebra by moving things. A visual-first, offline algebra course for beginners: number lines, balance scales, algebra tiles and graphs that always match the maths."
+    />
+    <meta name="theme-color" content="#f7f6f2" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Algebra Playground" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="./icons/icon.svg" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <style>
+      /* First-paint shell; the app CSS loads with the bundle. */
+      html,
+      body {
+        margin: 0;
+        background: #f7f6f2;
+        color: #1d2430;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      @media (prefers-color-scheme: dark) {
+        html,
+        body {
+          background: #141a22;
+          color: #edf0f4;
+        }
+      }
+      #boot {
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        gap: 12px;
+        text-align: center;
+        padding: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div id="boot">
+        <strong style="font-size: 20px">Algebra Playground</strong>
+        <span style="opacity: 0.7">Loading…</span>
+        <noscript>This app needs JavaScript to run. It works offline after the first visit.</noscript>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
