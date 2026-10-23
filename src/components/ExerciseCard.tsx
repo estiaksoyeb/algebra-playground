@@ -124,7 +124,11 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
       </p>
       {ex.math && (
         <div className="math-display">
-          <Math tex={ex.math} display label={ex.prompt} />
+          {/* No `label`: KaTeX output is marked aria-hidden, and the prompt above already
+              states the maths in words ("Solve for x."). Labelling it with the prompt made a
+              screen reader announce the whole question twice, and labelling it with the raw
+              LaTeX would read backslashes and commands aloud. */}
+          <Math tex={ex.math} display />
         </div>
       )}
       {ex.kind === 'choice' && ex.choices ? (

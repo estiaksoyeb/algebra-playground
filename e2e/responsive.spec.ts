@@ -67,8 +67,34 @@ test.describe('responsive layout', () => {
     await expectMinTouchTargets(page);
   });
 
-  test('mobile shows the bottom bar, desktop shows the side navigation', async ({ freshPage: page }) => {
-    await open(page, '#/learn');
+  // A block-level decoration (background, radius, padding, overflow) painted on an inline box
+  // is drawn once per line fragment. When a display formula wrapped, that produced empty
+  // rounded strips above and below the maths -- stray "pills" inside the exercise card. The
+  // element must therefore be a single block box, which `getClientRects()` exposes directly:
+  // an inline element that wraps reports several rects for one element.
+  test('display maths is one block box, not one fragment per line', async ({ freshPage: page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open(page, '#/learn/w1-l2-place-value');
+    for (let i = 0; i < 5; i++) {
+      if (await page.getByTestId('answer-input').count()) break;
+      await page.getByTestId('next-step').click();
+    }
+    await expect(page.getByTestId('exercise-w1-l2-e1')).toBeVisible();
+
+    const maths = page.locator('[data-testid="exercise-w1-l2-e1"] .math-block');
+    await expect(maths).toHaveCount(1);
+    const metrics = await maths.evaluate((el) => {
+      const style = getComputedStyle(el);
+      const rects = Array.from(el.getClientRects()).map((r) => ({ w: Math.round(r.width), h: Math.round(r.height) }));
+      return { display: style.display, frags: rects.length, rects };
+    });
+    expect(metrics.display, 'math-block must be a block box').toBe('block');
+    expect(metrics.frags, `one element must paint one box, got ${JSON.stringify(metrics.rects)}`).toBe(1);
+    // A stray fragment was only ~48px tall; the real panel is comfortably taller.
+    expect(metrics.rects[0].h).toBeGreaterThan(60);
+  });
+
+  test('mobile shows the bottom bar, desktop shows the side navigation', async ({ freshPage: page }) => {    await open(page, '#/learn');
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.locator('.bottom-nav')).toBeVisible();
     await expect(page.locator('.desktop-nav')).toBeHidden();

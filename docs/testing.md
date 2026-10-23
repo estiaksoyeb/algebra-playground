@@ -94,6 +94,13 @@ so the service worker and production build are exercised.
 - **Don't pipe a slow suite into `tail`** while diagnosing. Playwright prints only when tests
   finish, so a log with no live output makes a slow failure indistinguishable from a hang. Watch
   it directly, or use `--reporter=line`.
+- **A block-level decoration on an inline box paints once per line.** `.math-block` carried a
+  background, border-radius, padding and `overflow-x: auto` but had no `display`, so it inherited
+  its span default of `inline`. A display formula that wrapped therefore painted its background
+  once per line fragment, which showed up as empty rounded strips above and below the maths
+  inside the exercise card. If a box has a background or radius, it needs a block formatting
+  context. `getClientRects()` exposes the bug directly: an inline element that wraps returns
+  several rects for one element, which is what the responsive test asserts against.
 
 ## What each mandatory flow is covered by
 

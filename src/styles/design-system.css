@@ -606,6 +606,11 @@ textarea {
   font-size: 1em;
 }
 .math-block {
+  /* Must be a block box: the background, radius, padding and overflow below are all
+     block-level decorations. On an inline span the browser paints the background once per
+     line fragment, so a formula that wraps produced empty rounded strips above and below the
+     maths (visible as stray "pills" inside the exercise card). */
+  display: block;
   font-size: 1.25rem;
   background: var(--bg-sunken);
   border-radius: var(--radius-md);
