@@ -3,7 +3,8 @@ name: Deploy to GitHub Pages
 # Static site: typecheck, unit tests, build with the repository subpath, E2E smoke, publish.
 on:
   push:
-    branches: [main]
+    # `master` is this repository's working branch; `main` is kept so a rename still deploys.
+    branches: [master, main]
   workflow_dispatch:
 
 permissions:
