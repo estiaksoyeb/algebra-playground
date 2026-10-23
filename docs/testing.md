@@ -76,6 +76,24 @@ so the service worker and production build are exercised.
 - **Locator ambiguity on touch.** A locator like `getByRole('button', { name: 'Delete X' })`
   can match more than one node while a list is re-rendering. Scope locators to a row or
   section rather than searching the whole page.
+- **`localhost` is not one address.** Days were lost to this: `vite preview` without `--host`
+  binds whatever `localhost` resolves to. This machine's `/etc/hosts` maps it to `127.0.0.1`,
+  GitHub's `ubuntu-latest` maps it to `::1` first, so the server listened on IPv6 only while
+  Playwright probed the IPv4 literal `127.0.0.1`. The result was `ECONNREFUSED` for the entire
+  timeout and a message that blames `config.webServer`, even though the server was running and
+  healthy. The config now passes `--host 127.0.0.1` so both ends agree. A **local pass proves
+  nothing about this class of bug** — the resolver config is the variable under test, so verify
+  it on the runner or make the address explicit. When a `webServer` times out but the process is
+  alive (no "exited early" error), suspect the bind address before the build.
+- **`E2E_SKIP_BUILD=1` is only valid against a matching build.** It tells Playwright to serve an
+  existing `dist/` without building. Reusing a subpath build at `/` (or the reverse) 404s every
+  asset, so the app never mounts and *every* test fails only after its `expect` timeout — minutes
+  of silence that looks like a hang. `playwright.config.ts` now checks an asset path against
+  `E2E_BASE_PATH` while loading the config and fails in ~3s with the mismatched paths named.
+  Keep that guard: it converts the single most time-wasting failure mode into an instant error.
+- **Don't pipe a slow suite into `tail`** while diagnosing. Playwright prints only when tests
+  finish, so a log with no live output makes a slow failure indistinguishable from a hang. Watch
+  it directly, or use `--reporter=line`.
 
 ## What each mandatory flow is covered by
 

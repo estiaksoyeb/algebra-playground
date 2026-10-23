@@ -5,6 +5,10 @@ import { test, expect, open, whileOffline } from './fixtures';
  * JS and KaTeX chunks are cached, so a full reload with the network gone still works.
  */
 test.describe('offline', () => {
+  // Installs the worker, waits for the precache, then goes offline and reloads: slower than
+  // a normal page test, so opt into a larger budget than the suite default.
+  test.slow();
+
   test('works offline after the first visit, including a full reload', async ({ freshPage: page }) => {
     await open(page, '#/learn');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();

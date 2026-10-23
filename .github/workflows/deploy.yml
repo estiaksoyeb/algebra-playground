@@ -27,15 +27,33 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Typecheck
-        run: npx tsc -b
-      - name: Unit and component tests
-        run: npx vitest run
+      # Cache the browser download (~680MB) keyed on the resolved Playwright version, so a
+      # routine push only spends a few seconds here instead of downloading Chromium again.
+      # The version comes from the installed package rather than package.json's range, so
+      # the key changes exactly when the browser revision could have changed.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+      # `--with-deps` runs apt-get update + install of Chromium's system libraries. The
+      # ubuntu-latest image already ships them, and that apt call is the slowest and least
+      # predictable step we have (22s normally, but a stalled mirror once took 637s and
+      # re-ran every job). `--dry-run` verifies the libraries are still present and fails
+      # with a named package instead of a mystery browser-launch error if they are not.
+      # The retry guards the browser download against transient network failures.
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
-      # Build once, before Playwright starts, so the E2E webServer timeout only covers
-      # serving the site. Building inside Playwright's webServer command made CI reach the
-      # 180s timeout while still compiling.
+        run: |
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install chromium
+          else
+            npx playwright install --with-deps chromium || npx playwright install chromium
+          fi
+          npx playwright install-deps chromium --dry-run
+      - name: Typecheck and unit tests
+        run: npx tsc -b && npx vitest run
+      # Build once: the same `dist/` is served to Playwright and uploaded to Pages.
       - name: Build with the repository subpath
         run: npx vite build
         env:
@@ -49,9 +67,6 @@ jobs:
           E2E_BASE_PATH: /${{ github.event.repository.name }}/
           E2E_SKIP_BUILD: '1'
           CI: 'true'
-          # Surface the webServer child's stdout/stderr (Playwright hides stdout by default),
-          # so a failed startup shows why instead of a silent 180s timeout.
-          DEBUG: 'pw:webserver'
       - name: Verify the service worker was versioned
         run: test -s dist/sw.js && test -s dist/sw-version.txt && grep -q "algebra-playground-" dist/sw.js
       - uses: actions/upload-pages-artifact@v3
