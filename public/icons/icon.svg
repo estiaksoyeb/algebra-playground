@@ -1,5 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect x="1" y="1" width="30" height="30" rx="9" fill="#2f5d8a"/>
-  <path d="M9 22 L15.5 10 L22 22" stroke="#ffffff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M11.4 18.4 h8.2" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+  <!--
+    Source of truth for every app icon. The PNGs in this directory are generated from this
+    file by `node build/render-icons.mjs`; never edit them by hand. An earlier hand-drawn
+    icon-512.png had the crossbar fused into the apex, which closed the letter's counter and
+    made the launcher icon read as a triangle. Rendering from one vector avoids that drift.
+
+    The glyph is a stroked "A": two legs plus a crossbar. Geometry is kept symmetric about
+    x=16 so the letter sits exactly in the middle of the tile at any size.
+  -->
+  <rect x="1" y="1" width="30" height="30" rx="8" fill="#2f5d8a"/>
+  <!-- Legs: apex at x=16, feet at x=8/24. Symmetric about the vertical centreline. -->
+  <path d="M8.5 23 L16 9 L23.5 23" stroke="#ffffff" stroke-width="2.7" fill="none"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Crossbar: placed low enough to leave an open counter above it. -->
+  <path d="M11.6 18.6 h8.8" stroke="#ffffff" stroke-width="2.1" stroke-linecap="round"/>
 </svg>

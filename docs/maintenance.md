@@ -59,6 +59,31 @@ npx vite preview --port 4179   # open http://127.0.0.1:4179/algebra-playground/
 Check asset URLs resolve, the app loads, icons appear, and the SW registers with scope
 `/algebra-playground/`.
 
+## App icons
+
+`public/icons/icon.svg` is the single source of truth. The three PNGs next to it are
+generated, never hand-edited:
+
+```bash
+npm run icons   # renders icon-192, icon-512 and maskable-512 from icon.svg
+```
+
+Do not edit the PNGs directly. They were once hand-drawn and drifted from the SVG: the
+shipped `icon-512.png` had the crossbar fused into the apex, so the letter's counter was
+closed and the launcher icon looked like a triangle with legs. A manifest test now decodes
+the 512px icon and requires two separate white runs (the legs) at mid-height, which fails if
+the letter loses its hole.
+
+Two rules for the artwork:
+
+- **Centre the glyph on x=16 of the 32-unit viewBox.** The maskable crop is centred, so an
+  off-centre letter looks tilted once the platform applies its own shape.
+- **Keep the maskable glyph inside the central 80%.** The renderer insets the artwork to 80%
+  on a full-bleed background, so a circular or squircle crop still shows the whole letter.
+
+The renderer uses Playwright's Chromium because Linux images often lack `rsvg-convert`,
+ImageMagick or Inkscape. It needs `npx playwright install chromium` on a fresh machine.
+
 ## Invariants worth protecting
 
 - **No `eval` / `new Function`** anywhere in `src/`. Parsing is a hand-written

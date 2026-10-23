@@ -88,6 +88,45 @@ test.describe('offline', () => {
       expect((await res.body()).length).toBeGreaterThan(100);
     }
 
+    // The launcher icon must actually be a legible letter. It once shipped with the crossbar
+    // fused into the apex, so the counter (the triangular hole in the "A") was closed and the
+    // icon read as a triangle. Size and status checks cannot see that, so decode the PNG and
+    // assert the glyph is hollow above the crossbar: at mid-height there must be two separate
+    // white runs (the legs), with a gap between them.
+    const large = manifest.icons.find((i: { sizes: string }) => i.sizes === '512x512');
+    expect(large, 'manifest should advertise a 512x512 icon').toBeTruthy();
+    const png = await (await request.get(new URL(large.src, manifestUrl).toString())).body();
+    const runs = await page.evaluate(async (bytes) => {
+      const blob = new Blob([new Uint8Array(bytes)], { type: 'image/png' });
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(bitmap, 0, 0);
+      const { data, width, height } = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
+      const isWhite = (x: number, y: number) => {
+        const i = (y * width + x) * 4;
+        return data[i] > 200 && data[i + 1] > 200 && data[i + 2] > 200 && data[i + 3] > 200;
+      };
+      // Count contiguous white runs across the middle row of the glyph's bounding box.
+      let top = height, bottom = 0;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          if (isWhite(x, y)) { top = Math.min(top, y); bottom = Math.max(bottom, y); break; }
+        }
+      }
+      const y = Math.round((top + bottom) / 2);
+      const segments: Array<[number, number]> = [];
+      let start = -1;
+      for (let x = 0; x < width; x++) {
+        if (isWhite(x, y)) { if (start < 0) start = x; }
+        else if (start >= 0) { segments.push([start, x - 1]); start = -1; }
+      }
+      if (start >= 0) segments.push([start, width - 1]);
+      return segments;
+    }, Array.from(png));
+    expect(runs.length, `mid-height of the icon should show two legs, got ${JSON.stringify(runs)}`).toBe(2);
+    expect(runs[1][0] - runs[0][1], 'the letter counter should be open').toBeGreaterThan(5);
+
     // Read the version from the worker itself: it is the single source of truth for which
     // cache a deployed build uses, and `sw-version.txt` is only a copy for humans.
     const sw = await (await request.get(new URL('sw.js', page.url()).toString())).text();

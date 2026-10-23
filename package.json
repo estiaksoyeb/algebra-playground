@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "verify": "tsc -b && vitest run && vite build"
+    "verify": "tsc -b && vitest run && vite build",
+    "icons": "node build/render-icons.mjs"
   },
   "dependencies": {
     "katex": "^0.16.11",
