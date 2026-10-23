@@ -51,6 +51,23 @@ so the service worker and production build are exercised.
   therefore need the context actually set offline (`whileOffline` in `e2e/fixtures.ts`).
 - **One visible nav only.** On mobile the desktop rail exists in the DOM but is hidden by
   CSS. Use a `:visible` qualifier when asserting navigation is present.
+- **Do not animate a sticky bar's visibility.** If a `position: sticky` element gains its
+  `visibility` or `animation` mid-scroll it becomes a *new* sticky element, and the browser
+  places it at its static position until the next scroll — which puts it on top of the text
+  it should float over. That bug shipped once in the lesson footer. Change visibility via
+  state, or keep the bar permanently fixed on phones.
+- **A fixed bar needs reserved space.** Content under a `position: fixed` bar is unreachable
+  unless the scroll area has bottom padding at least as tall as the bar (see `.app-main:has(.lesson-shell)`).
+- **A sticky bar can only dock if the page can scroll it there.** `position: sticky` does not
+  push past its container's end, so a bar in a short card stops short of the bottom edge and
+  floats over the content. On phones the lesson bar is therefore `position: fixed`, not sticky.
+- **Audit z-index before trusting a sticky bar's backdrop.** In-card sticky elements (the
+  number-line `.equation-strip`, z-index 10) paint in order *after* a later sibling, so the
+  bar needed a higher stacking level (20) to stay opaque over them. `lessonLayout.spec.ts`
+  checks this with `elementFromPoint`.
+- **Two fixed bottom surfaces need one owner.** A nav and an action bar cannot both occupy the
+  bottom edge; practice/check hide the nav on phones rather than offset the bar by its height,
+  which never lines up with the safe-area insets.
 - **Never hand-patch `dist/`.** It is minified output: variable renaming makes careful
   string surgery silently wrong, and a regex can corrupt the bundle while `node --check`
   still passes. Build from source and add a temporary `console.log` there if you must.
@@ -76,6 +93,7 @@ so the service worker and production build are exercised.
 | Export → import | `e2e/backup.spec.ts` |
 | Offline after first load | `e2e/offline.spec.ts` |
 | No overflow at 390 px, touch targets | `e2e/responsive.spec.ts` |
+| Lesson action bar never covers content, labels fit | `e2e/lessonLayout.spec.ts` |
 | Navigation & hash routes | `e2e/navigation.spec.ts` |
 
 ## Honesty rule

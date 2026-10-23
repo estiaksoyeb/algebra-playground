@@ -320,6 +320,22 @@ textarea {
 }
 
 /* Mobile bottom nav */
+/*
+ * The lesson action bar is docked at the bottom of every lesson screen, so:
+ *  - practice / check hide the nav on phones (a docked bar and a nav cannot both occupy the
+ *    bottom edge), which also avoids navigating away mid-answer;
+ *  - teaching keeps the nav, and every lesson reserves the bar's height at the end of the
+ *    scroll area so the last line of a card is never covered. 164px is the tallest the bar
+ *    gets (two stacked buttons plus padding).
+ */
+@media (max-width: 959.98px) {
+  .app-main:has(.lesson-shell[data-docked-actions]) ~ .bottom-nav {
+    display: none;
+  }
+  .app-main:has(.lesson-shell) {
+    padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + 164px);
+  }
+}
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -495,6 +511,12 @@ textarea {
   border-radius: var(--radius-lg);
   padding: var(--sp-4);
   box-shadow: var(--shadow-1);
+  /*
+   * A card that ends in a sticky footer (`.lesson-footer`) must stay its own scroll
+   * container. `overflow: hidden` does that without `position: relative`, which would
+   * trap the sticky footer inside the card and let it slide over the card's text.
+   */
+  overflow: hidden;
 }
 .card + .card {
   margin-top: var(--sp-3);
@@ -856,6 +878,40 @@ input[type='range']::-moz-range-thumb {
   line-height: 1.6;
 }
 
+/*
+ * On phones every lesson action bar is a single full-width surface docked at the bottom
+ * edge: anchored to the viewport in practice / check, and directly above the nav while
+ * teaching. Either way it is flush — never floating over the text and never under the nav.
+ * Content never shows through it, and `.app-main` reserves its height so the last line of
+ * the card stays reachable.
+ *
+ * There is deliberately no show/hide animation: a sticky bar that animates visibility is
+ * re-placed by the browser at its static position until the next scroll, which put it on
+ * top of the text.
+ */
+@media (max-width: 959.98px) {
+  .lesson-shell .lesson-footer {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    padding: var(--sp-3) var(--sp-4) calc(var(--sp-4) + var(--safe-bottom));
+    border-radius: 0;
+    border-top: 1px solid var(--line);
+    box-shadow: 0 -12px 24px -18px rgb(15 23 32 / 0.55);
+  }
+  /* The card's own overflow must not clip a fixed bar on some browsers. */
+  .lesson-shell .card:has(> .lesson-footer) {
+    overflow: visible;
+  }
+  /* Teaching keeps the nav, so the bar sits directly on top of it. */
+  .lesson-shell:not([data-docked-actions]) .lesson-footer {
+    bottom: calc(var(--nav-height) + var(--safe-bottom));
+    padding-bottom: var(--sp-4);
+  }
+}
+
 .exercise {
   display: flex;
   flex-direction: column;
@@ -910,24 +966,87 @@ label.choice:has(> input[type='radio']) {
   font-weight: 700;
 }
 
+/*
+ * Lesson actions dock above the bottom navigation on phones. The bar is fully opaque and
+ * spans the card edge to edge so content never shows through it, and its height is
+ * reserved at the end of the scroll area (`.card:has(> .lesson-footer)`) so the last
+ * control on screen is never covered.
+ */
 .lesson-footer {
   position: sticky;
-  bottom: calc(var(--nav-height) + var(--safe-bottom));
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(10px);
-  padding: var(--sp-2) 0;
+  bottom: 0;
+  /* Above in-card sticky content such as the number-line equation strip (z-index 10);
+     still below the bottom nav (40) and overlays (60+). */
+  z-index: 20;
+  margin: var(--sp-4) calc(-1 * var(--sp-4)) calc(-1 * var(--sp-4));
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
   display: flex;
+  flex-wrap: wrap;
   gap: var(--sp-2);
   align-items: center;
-  z-index: 5;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -10px 20px -16px rgb(15 23 32 / 0.5);
 }
-@media (min-width: 960px) {
-  .lesson-footer {
-    bottom: 0;
-  }
+/* Reaching the end of the card: the sticky bar returns to normal flow and needs no seam. */
+.card:has(> .lesson-footer) {
+  padding-bottom: var(--sp-2);
+}
+.card:has(> .lesson-footer) > .lesson-footer {
+  margin-bottom: 0;
+}
+.lesson-footer:last-child {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+.lesson-footer > .btn {
+  /* Let labels wrap inside a button rather than beside it, and never outgrow the row. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-align: center;
+  line-height: 1.15;
 }
 .lesson-footer .btn-primary-next {
   margin-left: auto;
+  /* The forward action gets the room it needs (long labels like "Start practising (4)"). */
+  flex: 1 1 auto;
+  min-width: min(11rem, 100%);
+}
+.lesson-footer .btn-ghost {
+  flex: 0 0 auto;
+}
+/* Secondary "skip"-style action: its own full-width row under the main buttons. */
+.lesson-footer .lesson-footer-wide {
+  flex: 1 0 100%;
+  order: 10;
+  justify-content: center;
+}
+@media (min-width: 960px) {
+  .lesson-footer .lesson-footer-wide {
+    flex: 0 0 auto;
+    order: 0;
+  }
+}
+@media (min-width: 960px) {
+  .lesson-footer {
+    margin: var(--sp-4) 0 0;
+    padding: var(--sp-3) 0 0;
+    background: none;
+    border-top: 1px solid var(--line);
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .card:has(> .lesson-footer) {
+    padding-bottom: var(--sp-4);
+  }
+  .lesson-footer .btn-primary-next {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+  /* Ordering only applies inside a flex container; keep the DOM order on desktop. */
+  .lesson-footer .lesson-footer-wide {
+    order: initial;
+  }
 }
 
 /* ---------- Curriculum map ---------- */

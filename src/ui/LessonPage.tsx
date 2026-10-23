@@ -197,7 +197,9 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
 
   return (
     <Page title={lesson.title}>
-      <div className="lesson-shell">
+      {/* `data-docked-actions` tells the app shell to reserve room for the sticky lesson
+          footer above the bottom navigation, so it never covers the last control. */}
+      <div className="lesson-shell" data-docked-actions={phase.kind === 'practice' || phase.kind === 'check' ? '' : undefined}>
         <header className="lesson-header">
           <nav className="breadcrumb" aria-label="Breadcrumb">
             <a href="#/learn">Learn</a>
@@ -319,18 +321,20 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               </button>
               <button
                 type="button"
-                className="btn btn-ghost"
-                onClick={() => (phase.index < practice.length - 1 ? go({ kind: 'practice', index: phase.index + 1 }) : go({ kind: 'check', index: 0 }))}
-              >
-                Skip for now
-              </button>
-              <button
-                type="button"
                 className="btn btn-primary-next"
                 onClick={() => (phase.index < practice.length - 1 ? go({ kind: 'practice', index: phase.index + 1 }) : go({ kind: 'check', index: 0 }))}
                 data-testid="next-exercise"
               >
                 {phase.index < practice.length - 1 ? 'Next exercise' : 'Go to the check'}
+              </button>
+              {/* Full-width secondary action on its own row, so the two main buttons keep
+                  their natural size instead of squeezing labels onto two lines. */}
+              <button
+                type="button"
+                className="btn btn-ghost lesson-footer-wide"
+                onClick={() => (phase.index < practice.length - 1 ? go({ kind: 'practice', index: phase.index + 1 }) : go({ kind: 'check', index: 0 }))}
+              >
+                Skip for now
               </button>
             </div>
           </div>

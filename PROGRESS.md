@@ -1,10 +1,11 @@
 # ALGEBRA PLAYGROUND — PROGRESS
 
-_Last updated: session 4 — full verification **green**: 153 unit tests, 38/38 E2E on mobile, 38/38
-on desktop, and 76/76 against a `BASE_PATH=/algebra-playground/` build. Two serious bugs were found
-and fixed during this pass: **no lesson could ever be completed** (every mastery check was recorded
-as helped) and **offline reloads were broken** (precached assets could never be matched). All counts
-below were observed on the current source._
+_Last updated: session 4 — layout fixes to the lesson action bar, then full verification
+**green**: 153 unit tests, 80/80 E2E (mobile + desktop, including the new
+`e2e/lessonLayout.spec.ts`), and the subpath build checked earlier in the session. Two serious
+bugs were found and fixed during this pass: **no lesson could ever be completed** (every mastery
+check was recorded as helped) and **offline reloads were broken** (precached assets could never be
+matched). All counts below were observed on the current source._
 
 ## 1. Project objective & non-negotiable requirements
 
@@ -72,6 +73,39 @@ no telemetry. Requirements the build is held to:
 - [x] PROGRESS.md current.
 
 ### Fixed in session 4 — lessons could never be completed; offline reloads never worked
+
+Reported from a phone: the "Position" block sat *above* the Back/Next step bar, the bar had a
+see-through background with no edge, and in practice "Next exercise" / "Skip for now" wrapped onto
+two lines while "Your answer" was hidden underneath. Causes and fixes:
+
+- The footer was sticky at `bottom: nav-height` with a 92%-opaque blur, so it floated in the
+  middle of the screen over the card's text.
+- An attempt to hide it while reading (animating `visibility`) made it *more* broken: a sticky
+  element that starts animating mid-scroll is re-placed at its static position by the browser,
+  so it locked onto the text. Lesson: never animate a sticky bar's visibility
+  (recorded in `docs/testing.md`).
+- Final behaviour: on phones it is a single opaque, edge-to-edge bar docked directly on the bottom
+  nav with a top seam and no radius; the scroll area reserves its height so the last line of the
+  card is always reachable. Desktop keeps the calm in-card footer with a divider. Practice puts
+  "Skip for now" on its own full-width row, so "Next exercise" never wraps.
+- Regression coverage: `e2e/lessonLayout.spec.ts` (asserts no readable text is covered, the bar is
+  opaque and outranks in-card sticky content, the practice bar docks flush at the bottom edge with
+  the nav stepping aside, the teaching bar sits flush on the nav, the answer input is reachable, and
+  every label is one line).
+
+Second round on the same bar, reported from a phone:
+
+- **A content block painted over the bar.** The number-line `.equation-strip` is itself
+  `position: sticky` with `z-index: 10`; the bar was only `5`, so the "POSITION" block drew on top.
+  The bar is now `z-index: 20` (under the nav's 40). Covered by `lessonLayout.spec.ts` via
+  `elementFromPoint`.
+- **The two bars sat at different heights.** The practice bar was sticky *inside* the card, so it
+  could only dock if the page could scroll it to the bottom of the viewport — it usually could not
+  (page already at max scroll), leaving it floating over the input. On phones the lesson bar is now
+  always `position: fixed`, flushing to the bottom edge in practice/check (nav hidden) and onto the
+  nav while teaching. Same surface, no gap, no overlap.
+
+
 
 **1. Every mastery check counted as "helped", so no lesson could be finished.**
 `ExerciseCard` computed `usedHelp = freeHints ? hintsShown : Math.max(hintsShown, 1)`, so a check
@@ -224,9 +258,9 @@ return a new state or an error; UI depends on math/storage/engine but never the 
 | --- | --- | --- |
 | Types | `npx tsc -b` | clean |
 | Unit + component | `npx vitest run` | **153 passed / 9 files** |
-| E2E mobile (Pixel 5) | `npx playwright test --project=mobile` | **38 passed** |
-| E2E desktop | `npx playwright test --project=desktop` | **38 passed** |
-| E2E subpath build | `BASE_PATH=/algebra-playground/ E2E_BASE_PATH=/algebra-playground/ npx playwright test` | **76 passed** |
+| E2E mobile (Pixel 5) | `npx playwright test --project=mobile` | **42 passed** |
+| E2E desktop | `npx playwright test --project=desktop` | **42 passed** |
+| E2E subpath build | `BASE_PATH=/algebra-playground/ E2E_BASE_PATH=/algebra-playground/ npx playwright test` | **76 passed** (before the session-4 layout fixes; re-run before deploy) |
 
 E2E runs against a production build served by `vite preview` on port 4179. Kill a stale preview first
 (`kill $(lsof -t -i:4179)`), otherwise `reuseExistingServer` can serve an old bundle.
