@@ -6,35 +6,16 @@ import {
   storedLessonState,
   injectLessonSaveFailure,
   allowLessonSaves,
+  reachPractice,
 } from './fixtures';
 
 /**
  * Lesson flow for the first lesson: teaching steps → practice → mastery check →
  * completion, and what happens on reload, wrong answers and hints.
- */
-
-/**
- * Click through the teaching steps until the first practice exercise appears.
  *
- * After the last click ("Start practising") the practice card mounts and the teaching card
- * unmounts. A bare `next-step` click issued in that gap waits for a locator that has just
- * disappeared, and the whole test then burns its 30s budget waiting (observed 46.9s frame:
- * practice visible, `next-step` gone, click still pending). So wait for *either* outcome of
- * each click, and let a failed click resolve as "practice is now showing".
+ * `reachPractice` lives in fixtures.ts: it walks the teaching steps without the click/
+ * unmount race that used to time out here and in responsive.spec.ts.
  */
-async function reachPractice(page: import('@playwright/test').Page): Promise<void> {
-  await open(page, '#/learn/w1-l1-counting');
-  const input = page.getByTestId('answer-input');
-  const next = page.getByTestId('next-step');
-  for (let i = 0; i < 10; i++) {
-    // Wait for whichever screen is actually rendered, rather than sampling immediately.
-    await expect(input.or(next).first()).toBeVisible();
-    if (await input.count()) return;
-    await next.click({ timeout: 5000 }).catch(() => undefined);
-  }
-  // Final, honest assertion: it must really be practice by now.
-  await expect(input).toBeVisible({ timeout: 10_000 });
-}
 
 /** The four practice answers for w1-l1, in order. */
 const PRACTICE = ['6', '7', '11', '10'];

@@ -1,4 +1,4 @@
-import { test, expect, open, expectNoHorizontalOverflow, expectMinTouchTargets } from './fixtures';
+import { test, expect, open, reachPractice, expectNoHorizontalOverflow, expectMinTouchTargets } from './fixtures';
 
 /**
  * Responsive sweep: every screen, at real device widths, must not scroll sideways
@@ -55,11 +55,7 @@ test.describe('responsive layout', () => {
 
   test('the lesson player fits after answering an exercise', async ({ freshPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await open(page, '#/learn/w1-l1-counting');
-    for (let i = 0; i < 5; i++) {
-      if (await page.getByTestId('answer-input').count()) break;
-      await page.getByTestId('next-step').click();
-    }
+    await reachPractice(page);
     await page.getByTestId('answer-input').fill('5');
     await page.getByTestId('submit-answer').click();
     await expect(page.getByTestId('tutor-feedback')).toBeVisible();
@@ -74,11 +70,7 @@ test.describe('responsive layout', () => {
   // an inline element that wraps reports several rects for one element.
   test('display maths is one block box, not one fragment per line', async ({ freshPage: page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await open(page, '#/learn/w1-l2-place-value');
-    for (let i = 0; i < 5; i++) {
-      if (await page.getByTestId('answer-input').count()) break;
-      await page.getByTestId('next-step').click();
-    }
+    await reachPractice(page, 'w1-l2-place-value');
     await expect(page.getByTestId('exercise-w1-l2-e1')).toBeVisible();
 
     const maths = page.locator('[data-testid="exercise-w1-l2-e1"] .math-block');

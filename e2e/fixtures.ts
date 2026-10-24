@@ -203,6 +203,31 @@ export async function allowLessonSaves(page: Page): Promise<void> {
 }
 
 /** Wait until the lesson controls are live (the player has finished restoring). */
+/**
+ * Click through the teaching steps of a lesson until its first practice exercise appears.
+ *
+ * When the final click ("Start practising") is processed, the practice card mounts and the
+ * teaching card unmounts in the same render. A `next-step` click still in flight at that
+ * moment waits for a locator that has just disappeared, and the whole test then burns its 30s
+ * timeout (`locator.click: … element was detached from the DOM, retrying`). This was the one
+ * flaky failure in CI, on mobile and desktop.
+ *
+ * So: wait for whichever screen is actually rendered before deciding what to do, bound each
+ * click, and finish with a real assertion so a genuine regression still fails loudly.
+ */
+export async function reachPractice(page: Page, lessonId = 'w1-l1-counting'): Promise<void> {
+  await open(page, `#/learn/${lessonId}`);
+  const input = page.getByTestId('answer-input');
+  const next = page.getByTestId('next-step');
+  for (let i = 0; i < 10; i++) {
+    await expect(input.or(next).first()).toBeVisible();
+    if (await input.count()) return;
+    // A detached button means the practice card is taking over: that click has done its job.
+    await next.click({ timeout: 5000 }).catch(() => undefined);
+  }
+  await expect(input).toBeVisible({ timeout: 10_000 });
+}
+
 export async function expectLessonReady(page: Page): Promise<void> {
   await expect(page.getByTestId('next-step').or(page.getByTestId('prev-step')).or(page.getByTestId('lesson-complete')).first()).toBeVisible();
 }
