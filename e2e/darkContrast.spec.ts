@@ -194,22 +194,19 @@ test.describe('tool spacing on phones', () => {
     await startIn(page, 'light', '#/learn/w1-l1-counting');
     const tool = page.locator('.embedded-tool');
     await expect(tool).toBeVisible();
+    // Batch A removed the "Try it here" hand-off from teaching steps, so the note panel
+    // is no longer part of the embedded tool; the canvas padding + real child gap stay.
+    await expect(tool.locator('.embedded-tool-note')).toHaveCount(0);
     const gaps = await tool.evaluate((el) => {
       const cs = getComputedStyle(el);
-      const note = el.querySelector('.embedded-tool-note')!;
-      const noteCs = getComputedStyle(note);
       const canvas = el.querySelector('.tool-canvas')!;
       const canvasCs = getComputedStyle(canvas);
       return {
         rowGap: parseFloat(cs.rowGap || cs.gap || '0'),
-        notePaddingTop: parseFloat(noteCs.paddingTop),
-        notePaddingLeft: parseFloat(noteCs.paddingLeft),
         canvasPadding: parseFloat(canvasCs.paddingTop),
       };
     });
     expect(gaps.rowGap, 'inline tool children need a real gap').toBeGreaterThanOrEqual(12);
-    expect(gaps.notePaddingTop, '"Try it here" needs padding').toBeGreaterThanOrEqual(8);
-    expect(gaps.notePaddingLeft, '"Try it here" needs padding').toBeGreaterThanOrEqual(12);
     expect(gaps.canvasPadding, 'visualisation needs internal padding').toBeGreaterThanOrEqual(8);
   });
 
@@ -234,8 +231,9 @@ test.describe('tool spacing on phones', () => {
     await startIn(page, 'light', '#/learn/w1-l1-counting');
     const tip = page.locator('.callout-tip').first();
     await expect(tip).toBeVisible();
-    const note = page.locator('.embedded-tool-note').first();
-    const [n, t] = [(await note.boundingBox())!, (await tip.boundingBox())!];
-    expect(t.y, 'the Tip card must not touch the "Try it here" panel').toBeGreaterThanOrEqual(n.y + n.height);
+    // The Tip follows the whole tool (canvas + Undo/Redo/Reset bar) and must clear it.
+    const bar = page.locator('.embedded-tool-bar').first();
+    const [b, t] = [(await bar.boundingBox())!, (await tip.boundingBox())!];
+    expect(t.y, 'the Tip card must not touch the tool actions').toBeGreaterThanOrEqual(b.y + b.height);
   });
 });

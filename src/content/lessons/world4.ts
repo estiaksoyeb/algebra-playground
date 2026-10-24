@@ -16,14 +16,14 @@ export const WORLD4_LESSONS: Lesson[] = [
         title: 'The equals sign is a balance',
         body: '3 + 4 = 7 is true because both sides name the same amount. Think of a balance scale with equal weight on each side.',
         math: '3 + 4 = 7 \\quad \\checkmark',
-        callout: { kind: 'tip', text: 'Drag weights onto the scale. The scale stays level only when the two sides match.' },
+        callout: { kind: 'tip', text: 'Set the Amount, then tap "Add … to both sides" or "Subtract … from both sides". The scale stays level only when the two sides match.' },
       },
       {
         type: 'teach',
         title: 'Equal changes keep it balanced',
         body: 'Add the same weight to both pans and the scale stays level. Add to only one pan and it tips. This is the golden rule of equation solving.',
         math: 'a = b \\Rightarrow a + c = b + c',
-        visual: { tool: 'balance', initialState: { left: { x: 1, units: 3 }, right: { x: 0, units: 7 }, operation: 'subtract-3' } },
+        visual: { tool: 'balance', initialState: { left: { x: 1, units: 3 }, right: { x: 0, units: 7 } } },
       },
       {
         type: 'check',
@@ -112,7 +112,7 @@ export const WORLD4_LESSONS: Lesson[] = [
       {
         type: 'explore',
         title: 'Do the same to both sides',
-        body: 'Use the operation buttons. If you subtract from only one side, the equation becomes untrue and the app warns you.',
+        body: 'Use the operation buttons to add or subtract the same amount on both sides until x is alone.',
         visual: { tool: 'balance', initialState: { left: { x: 1, units: 5 }, right: { x: 0, units: 9 } } },
         callout: { kind: 'why', text: 'Undo addition with subtraction, subtraction with addition, multiplication with division, division with multiplication.' },
       },

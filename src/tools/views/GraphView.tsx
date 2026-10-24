@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GraphState, lineSegments, parabolaPoints, setPoint, tableOfValues, systemSolution } from '../../tools/graph';
+import { GraphState, graphModel, lineSegments, parabolaPoints, setPoint, tableOfValues, systemSolution } from '../../tools/graph';
 
 interface Props {
   state: GraphState;
@@ -153,7 +153,7 @@ export function GraphView({ state, onChange, interactive }: Props) {
 
 function describe(s: GraphState, sol: { x: number; y: number } | null): string {
   if (s.mode === 'explore') return `Point at (${s.point.x}, ${s.point.y}).`;
-  if (s.mode === 'quadratic') return `Parabola y = ${s.a}x² + ${s.b}x + ${s.m}.`;
+  if (s.mode === 'quadratic') return `Parabola: ${graphModel.symbolic(s).text}.`;
   if (s.mode === 'system') return sol ? `Two lines crossing at (${sol.x}, ${sol.y}).` : 'Two parallel lines with no intersection.';
   return `Line y = ${s.m}x + ${s.b}.`;
 }

@@ -14,7 +14,7 @@
  * Unsupported constructs produce a descriptive ParseError, never a silent wrong answer.
  */
 import { Rational } from './rational';
-import { evaluateExact } from './evaluate';
+import { evaluateExact, toPlainText } from './evaluate';
 
 export type Expr =
   | { type: 'num'; value: Rational }
@@ -281,6 +281,88 @@ export function variablesOf(e: Expr): string[] {
     if (n.type === 'var') set.add(n.name);
   });
   return [...set].sort();
+}
+
+/**
+ * Learner-facing order-of-operations breakdown for a numeric expression.
+ *
+ * Each entry is one operation written as "before = after", in the order the rules
+ * require (innermost brackets → powers → × ÷ → + −). Used by the embedded evaluator
+ * so a step can show *why* `2 + 3 × 4` is 14 instead of one opaque answer.
+ * Returns [] for expressions with variables — they have no single numeric order.
+ */
+export type EvaluationStep = { op: '^' | '×' | '÷' | '+' | '−'; text: string; value: string };
+
+/** The same little AST as the parser, but every node already knows its numeric value. */
+type Node = { /** running value after folding (plain number) */ text: string; /** learner-readable form of this sub-expression */ shown: string; value: Rational; op?: '×' | '÷' | '^' | '+' | '−' };
+
+export function evaluationSteps(e: Expr): EvaluationStep[] {
+  if (variablesOf(e).length > 0) return [];
+  const out: EvaluationStep[] = [];
+  try {
+    fold(e);
+  } catch {
+    return [];
+  }
+  return out;
+
+  function fold(n: Expr): Node {
+    switch (n.type) {
+      case 'num':
+        return { text: plain(n.value), shown: plain(n.value), value: n.value };
+      case 'var':
+        throw new Error('variable');
+      case 'func':
+        return { text: plainOf(n), shown: plainOf(n), value: evaluateExact(n, {}).value };
+      case 'add': {
+        const kids = n.terms.map(fold);
+        // The unary minus sits *outside* the power node, so "12 - 5" arrives as 12 + (-(5)).
+        const signed = (k: Node): Node => (k.value.isNegative() && k.shown.startsWith('-') ? { ...k, text: plain(k.value.abs()), shown: k.shown.slice(1) } : k);
+        const parts = kids.map(signed);
+        const chain = parts
+          .map((k, i) => (i === 0 ? (kids[i].value.isNegative() ? `-${k.shown}` : k.shown) : `${kids[i].value.isNegative() ? '−' : '+'} ${k.shown}`))
+          .filter((part) => part !== '')
+          .join(' ');
+        const total = kids.reduce((v, k) => v.add(k.value), Rational.ZERO);
+        if (kids.length > 1) out.push({ op: '+', text: `${chain} = ${plain(total)}`, value: plain(total) });
+        return { text: plain(total), shown: chain, value: total, op: '+' };
+      }
+      case 'mul': {
+        // The parser turns a ÷ b into a × b^-1, so a lone negative power is a division.
+        if (n.factors.length === 2 && n.factors[1].type === 'pow' && n.factors[1].exp === -1) {
+          const left = fold(n.factors[0]);
+          const right = fold(n.factors[1].base);
+          const value = left.value.div(right.value);
+          out.push({ op: '÷', text: `${left.shown} ÷ ${right.shown} = ${plain(value)}`, value: plain(value) });
+          return { text: plain(value), shown: `${left.shown} ÷ ${right.shown}`, value, op: '÷' };
+        }
+        const kids = n.factors.map(fold);
+        const chain = kids.map((k) => k.shown).join(' × ');
+        let value = kids[0].value;
+        for (let i = 1; i < kids.length; i++) value = value.mul(kids[i].value);
+        out.push({ op: '×', text: `${chain} = ${plain(value)}`, value: plain(value) });
+        return { text: plain(value), shown: chain, value, op: '×' };
+      }
+      case 'pow': {
+        const base = fold(n.base);
+        const value = evaluateExact(n, {}).value;
+        out.push({ op: '^', text: `${base.shown}^${n.exp} = ${plain(value)}`, value: plain(value) });
+        return { text: plain(value), shown: plainOf(n), value, op: '^' };
+      }
+    }
+  }
+}
+
+
+/** Plain text with learner typography (× instead of *). */
+function plainOf(n: Expr): string {
+  return toPlainText(n);
+}
+
+/** Rational → display text, reusing the tool's number formatting. */
+function plain(r: Rational): string {
+  const dec = r.toDecimal();
+  return dec.exact ? dec.text : r.toString();
 }
 
 export function visit(e: Expr, f: (n: Expr) => void): void {

@@ -125,7 +125,7 @@ export const WORLD1_LESSONS: Lesson[] = [
         type: 'explore',
         title: 'Build numbers on the number line',
         body: 'Use the marker to find 40, then 43. Notice 43 is 3 steps past 40 — those 3 steps are the ones digit.',
-        visual: { tool: 'numberline', initialState: { value: 43, min: 0, max: 100, step: 1 } },
+        visual: { tool: 'numberline', initialState: { value: 40, min: 0, max: 100, step: 1, jump: 10, mark: 43 } },
         callout: { kind: 'why', text: 'Tens are jumps of 10; ones are single steps. That is exactly expanded form.' },
       },
       {
@@ -222,15 +222,15 @@ export const WORLD1_LESSONS: Lesson[] = [
         title: 'Adding is moving right',
         body: 'To add, start at the first number and move right by the second number. Starting at 7 and moving 5 steps gives 12.',
         math: '7 + 5 = 12',
-        visual: { tool: 'numberline', initialState: { value: 7, min: 0, max: 20, addend: 5 } },
-        callout: { kind: 'tip', text: 'Use the + and − buttons to step. The marker and the equation update together.' },
+        visual: { tool: 'numberline', initialState: { value: 12, min: 0, max: 20, addend: 5 } },
+        callout: { kind: 'tip', text: 'Use the ← 1 and 1 → buttons to step. The marker and the equation update together.' },
       },
       {
         type: 'explore',
         title: 'Order does not matter',
         body: 'Try 5 + 7. You start at a different place but land on the same number. Addition is commutative.',
         math: '7 + 5 = 5 + 7',
-        visual: { tool: 'numberline', initialState: { value: 5, min: 0, max: 20, addend: 7 } },
+        visual: { tool: 'numberline', initialState: { value: 12, min: 0, max: 20, addend: 7 } },
         callout: { kind: 'why', text: 'The total distance travelled is the same whichever order you use.' },
       },
       {
@@ -314,7 +314,7 @@ export const WORLD1_LESSONS: Lesson[] = [
         title: 'Subtracting is moving left',
         body: 'Start at the larger number and move left. 12 − 5 means start at 12 and move 5 steps left to 7.',
         math: '12 - 5 = 7',
-        visual: { tool: 'numberline', initialState: { value: 12, min: 0, max: 20, addend: -5 } },
+        visual: { tool: 'numberline', initialState: { value: 7, min: 0, max: 20, addend: -5 } },
       },
       {
         type: 'explore',
@@ -669,7 +669,7 @@ export const WORLD1_LESSONS: Lesson[] = [
     ],
     misconceptions: [
       { id: 'order-left-to-right', description: 'Working strictly left to right', feedback: 'Do × and ÷ before + and −. Underline the multiplication first.' },
-      { id: 'exponent-as-multiply', description: 'Treating x² as 2x', feedback: '2³ means 2 × 2 × 2 = 8, not 2 × 3.' },
+      { id: 'exponent-as-multiply', description: 'Treating 2³ as 2 × 3 instead of 2 × 2 × 2', feedback: '2³ means 2 × 2 × 2 = 8, not 2 × 3.' },
     ],
     mastery: { minIndependent: 3, minVariety: 3, requiresCheck: true },
     remediation: 'w1-l5-multiplication',

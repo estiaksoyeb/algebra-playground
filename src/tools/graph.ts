@@ -66,10 +66,25 @@ export function parabolaPoints(g: GraphState, steps = 60): { x: number; y: numbe
   return out;
 }
 
+/**
+ * Table of values for the rule on screen. A parabola samples x = −n … n so the turning
+ * point is visible; a line uses 0 … n.
+ */
 export function tableOfValues(g: GraphState, n = 5): { x: number; y: number }[] {
   const out: { x: number; y: number }[] = [];
+  if (g.mode === 'quadratic') {
+    for (let x = -n; x <= n; x++) out.push({ x, y: g.a * x * x + g.b * x + g.m });
+    return out;
+  }
   for (let x = 0; x <= n; x++) out.push({ x, y: g.m * x + g.b });
   return out;
+}
+
+/** Turning point of the parabola ax² + bx + c, or null for a straight line (a = 0). */
+export function quadraticVertex(g: GraphState): { x: number; y: number } | null {
+  if (g.a === 0) return null;
+  const x = normaliseZero(-g.b / (2 * g.a));
+  return { x, y: g.a * x * x + g.b * x + g.m };
 }
 
 /** Intercepts for the quadratic ax² + bx + c; returns real integer-friendly roots when they exist. */
@@ -80,9 +95,14 @@ export function quadraticRoots(g: GraphState): number[] {
   if (a === 0) return b === 0 ? [] : [-c / b];
   const disc = b * b - 4 * a * c;
   if (disc < 0) return [];
-  if (disc === 0) return [-b / (2 * a)];
+  if (disc === 0) return [normaliseZero(-b / (2 * a))];
   const s = Math.sqrt(disc);
-  return [(-b - s) / (2 * a), (-b + s) / (2 * a)].sort((p, q) => p - q);
+  return [normaliseZero((-b - s) / (2 * a)), normaliseZero((-b + s) / (2 * a))].sort((p, q) => p - q);
+}
+
+/** -0 and 0 are the same root; printing "x = -0" reads as a different one. */
+function normaliseZero(n: number): number {
+  return n === 0 ? 0 : n;
 }
 
 /** System solution (intersection of the two lines) if unique. */
@@ -117,6 +137,41 @@ function constTerm(c: number): string {
   return ` + ${fmt(c)}`;
 }
 
+/** LaTeX for the sq term ax², omitting 1 (never "1x^{2}"). */
+function sqTerm(a: number): string {
+  if (a === 1) return 'x^{2}';
+  if (a === -1) return '-x^{2}';
+  return `${fmt(a)}x^{2}`;
+}
+
+/**
+ * Any term joined onto a running expression: drops it entirely when the coefficient is
+ * zero, so "y = x^{2} + 0x + 0" can never appear.
+ */
+function appendTerm(prev: string, coeff: number, letter: 'x' | ''): string {
+  if (coeff === 0) return prev;
+  const body = letter === 'x' ? (Math.abs(coeff) === 1 ? 'x' : `${fmt(Math.abs(coeff))}x`) : fmt(Math.abs(coeff));
+  return coeff < 0 ? `${prev} - ${body}` : `${prev} + ${body}`;
+}
+
+/** LaTeX for a quadratic in standard form: ax² + bx + c with zero terms omitted. */
+function quadraticLatex(g: GraphState): string {
+  const head = sqTerm(g.a);
+  return appendTerm(appendTerm(`y = ${head}`, g.b, 'x'), g.m, '');
+}
+
+/** Plain text for a quadratic, using the learner's superscript and minus glyphs. */
+function quadraticText(g: GraphState): string {
+  const head = g.a === 1 ? 'x²' : g.a === -1 ? '-x²' : `${fmt(g.a)}x²`;
+  let out = `y = ${head}`;
+  if (g.b !== 0) {
+    const size = Math.abs(g.b) === 1 ? '' : fmt(Math.abs(g.b));
+    out += g.b < 0 ? ` - ${size}x` : ` + ${size}x`;
+  }
+  if (g.m !== 0) out += g.m < 0 ? ` - ${fmt(Math.abs(g.m))}` : ` + ${fmt(g.m)}`;
+  return out.replace(/-/g, '−');
+}
+
 export const graphModel: ToolModel<GraphState> = {
   id: 'graph',
   label: 'Graph',
@@ -129,11 +184,7 @@ export const graphModel: ToolModel<GraphState> = {
       };
     }
     if (g.mode === 'quadratic') {
-      const quad = `y = ${xTerm(g.a)}x^{2}${constTerm(g.b)}x${constTerm(g.m)}`.replace('xx', 'x^2');
-      return {
-        latex: quad,
-        text: quad.replace(/\\/g, '').replace(/\^\{2\}/g, '^2').replace(/-/g, '−'),
-      };
+      return { latex: quadraticLatex(g), text: quadraticText(g) };
     }
     if (g.mode === 'line') {
       const line = `y = ${xTerm(g.m)}${constTerm(g.b)}`;
@@ -154,10 +205,12 @@ export const graphModel: ToolModel<GraphState> = {
       return { title: 'Straight line', lines };
     }
     const roots = quadraticRoots(g);
+    const vertex = quadraticVertex(g);
     return {
       title: 'Parabola',
       lines: [
-        `y = ${`${xTerm(g.a)}x²${constTerm(g.b)}x${constTerm(g.m)}`.replace('xx', 'x²').replace(/-/g, '−')}.`,
+        `${quadraticText(g)}.`,
+        vertex ? `Its turning point is (${fmt(vertex.x)}, ${fmt(vertex.y)}).` : 'A straight line, not a parabola.',
         roots.length ? `It crosses the x-axis at x = ${roots.map(fmt).join(' and ')}.` : 'It does not cross the x-axis.',
         'A positive leading coefficient opens upward; a negative one opens downward.',
       ],

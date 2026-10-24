@@ -16,7 +16,7 @@ export const WORLD3_LESSONS: Lesson[] = [
         title: 'A box for the unknown',
         body: 'Imagine a box holding some counters. You do not know how many. We write x for that unknown amount. The box and the letter mean the same thing.',
         math: '\\boxed{x} + 3 = 7',
-        visual: { tool: 'mystery', initialState: { value: 4, extra: 3, target: 7 } },
+        visual: { tool: 'mystery', initialState: { value: 2, extra: 3, target: 7 } },
         callout: { kind: 'tip', text: 'Move the slider to change x. Watch the total and the equation update together.' },
       },
       {

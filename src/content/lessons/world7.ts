@@ -200,13 +200,13 @@ export const WORLD7_LESSONS: Lesson[] = [
         title: 'Two conditions at once',
         body: 'x + y = 5 and x − y = 1. Middle school algebra: add the equations to eliminate y: 2x = 6, so x = 3 and y = 2.',
         math: '\\begin{cases} x+y=5 \\\\ x-y=1 \\end{cases} \\Rightarrow x=3,\\; y=2',
-        visual: { tool: 'graph', initialState: { mode: 'system', m: 1, b: 5, m2: 1, b2: -1, range: 6 } },
+        visual: { tool: 'graph', initialState: { mode: 'system', m: -1, b: 5, m2: 1, b2: -1, range: 6 } },
       },
       {
         type: 'teach',
         title: 'The intersection',
         body: 'Each equation is a line. The solution pair is the point where the two lines cross: (3, 2).',
-        visual: { tool: 'graph', initialState: { mode: 'system', m: 1, b: 5, m2: 1, b2: -1, range: 6 } },
+        visual: { tool: 'graph', initialState: { mode: 'system', m: -1, b: 5, m2: 1, b2: -1, range: 6 } },
         callout: { kind: 'why', text: 'Parallel lines never meet, so there is no solution pair.' },
       },
       {
@@ -479,7 +479,7 @@ export const WORLD7_LESSONS: Lesson[] = [
         title: 'Shifting the vertex',
         body: 'y = (x − 2)² + 1 shifts right 2 and up 1. The vertex is (2, 1).',
         math: 'y = (x-2)^2 + 1',
-        visual: { tool: 'graph', initialState: { mode: 'quadratic', a: 1, b: -2, c: 1, range: 5 } },
+        visual: { tool: 'graph', initialState: { mode: 'quadratic', a: 1, b: -4, c: 5, range: 5 } },
         callout: { kind: 'why', text: 'The vertex is where the squared term is zero. Roots are where the graph crosses the x-axis.' },
       },
       {
@@ -487,6 +487,7 @@ export const WORLD7_LESSONS: Lesson[] = [
         title: 'Roots are x-intercepts',
         body: 'y = x² − 4 crosses the x-axis at x = −2 and x = 2, matching the solutions of x² − 4 = 0.',
         math: 'y = x^2 - 4 \\Rightarrow x = \\pm 2',
+        visual: { tool: 'graph', initialState: { mode: 'quadratic', a: 1, b: 0, c: -4, range: 6 } },
       },
     ],
     exercises: [

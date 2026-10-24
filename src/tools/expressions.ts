@@ -2,7 +2,7 @@
  * Expression tools: eval / simplify / area model. One pure parse-and-derive core,
  * with explicit unsupported cases (division by variables, non-polynomial functions).
  */
-import { tryParse, parseExpression, Expr } from '../math/expression';
+import { tryParse, parseExpression, variablesOf, Expr } from '../math/expression';
 import { evaluateExact, toLatex, toPlainText } from '../math/evaluate';
 import { polynomialEquivalence, polyToLatex, polyToText, toPolynomial } from '../math/polynomial';
 import { Rational } from '../math/rational';
@@ -23,21 +23,28 @@ export interface Derived {
   error?: string;
   numeric?: string;
   expr?: Expr;
+  /** Letters that actually occur in the expression, sorted. Empty for pure arithmetic. */
+  vars?: string[];
 }
 
 export function deriveEval(s: EvalState): Derived {
   const parsed = tryParse(s.expression);
-  if (!parsed.ok) return { ok: false, error: parsed.error.message };
+  if (!parsed.ok) return { ok: false, error: parsed.error.message, vars: [] as string[] };
   const latex = toLatex(parsed.expr);
+  const vars = variablesOf(parsed.expr);
   let numeric: string | undefined;
   try {
-    const r = evaluateExact(parsed.expr, { x: Rational.of(s.x), y: Rational.of(s.x), a: Rational.of(s.x), b: Rational.of(s.x) });
+    // Pure arithmetic ("2 + 3 * 4") needs no substitution at all: show x's value only
+    // when the expression really contains it.
+    const value = Rational.of(s.x);
+    const env: Record<string, Rational> = vars.length ? { x: value, y: value, a: value, b: value } : {};
+    const r = evaluateExact(parsed.expr, env);
     numeric = r.exact ? r.value.toString() : `${r.value.toNumber().toFixed(4)} (approx.)`;
   } catch (err) {
     numeric = undefined;
     void err;
   }
-  return { ok: true, latex, text: toPlainText(parsed.expr), numeric, expr: parsed.expr };
+  return { ok: true, latex, text: toPlainText(parsed.expr), numeric, expr: parsed.expr, vars };
 }
 
 export function deriveSimplify(s: { expression: string }): Derived & { substituted?: string } {
@@ -59,14 +66,36 @@ export function deriveSimplify(s: { expression: string }): Derived & { substitut
   }
 }
 
+export type AreaMode = 'distribute' | 'binomial';
+
 export interface AreaState {
+  /**
+   * 'distribute' draws a(b + c) with one outside factor and two inside terms;
+   * 'binomial' draws the product of two two-part factors. It lives in the model so a
+   * lesson step can ask for a shape instead of the panel guessing one.
+   */
+  mode: AreaMode;
+  /** Outside factor (distribute) or first factor (binomial). */
   a: string;
+  /** First term inside b (distribute) or second factor (binomial). */
   b: string;
+  /** Second term inside c (distribute). Unused in binomial mode. */
   c: string;
 }
 
 export function createArea(init: Partial<AreaState> = {}): AreaState {
-  return { a: init.a ?? '2', b: init.b ?? 'x', c: init.c ?? '3' };
+  const mode: AreaMode = init.mode ?? 'distribute';
+  return {
+    mode,
+    a: init.a ?? (mode === 'binomial' ? 'x + 1' : '2'),
+    b: init.b ?? (mode === 'binomial' ? 'x + 2' : 'x'),
+    c: init.c ?? '3',
+  };
+}
+
+/** The area model a state describes, whichever mode it is in. */
+export function deriveAreaState(s: AreaState): AreaDerived {
+  return s.mode === 'binomial' ? deriveBinomialArea(s.a, s.b) : deriveArea(s);
 }
 
 export interface AreaCell {

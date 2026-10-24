@@ -16,6 +16,11 @@ export interface NumberLineState {
   step: Rational;
   /** last jump size; 0 means "no current jump shown" */
   addend: Rational;
+  /**
+   * Size of the Jump −/+ buttons; null means "same as step". A lesson about tens sets
+   * it to 10 so "Tens are jumps of 10" is literally true.
+   */
+  jump: Rational | null;
   /** optional reference marker */
   mark: Rational | null;
   /** monotone counter so views can animate the last change */
@@ -30,7 +35,7 @@ export interface NumberLineOpResult {
 
 const R = (v: number) => Rational.of(v);
 
-export function createNumberLine(init: Partial<Record<'value' | 'min' | 'max' | 'step' | 'addend' | 'mark', number>> = {}): NumberLineState {
+export function createNumberLine(init: Partial<Record<'value' | 'min' | 'max' | 'step' | 'addend' | 'mark' | 'jump', number>> = {}): NumberLineState {
   const min = R(init.min ?? -10);
   const max = R(init.max ?? 10);
   const step = R(init.step ?? 1);
@@ -41,9 +46,17 @@ export function createNumberLine(init: Partial<Record<'value' | 'min' | 'max' | 
     max,
     step: step.isZero() ? R(1) : step.abs(),
     addend: R(init.addend ?? 0),
+    jump: init.jump === undefined ? null : (R(init.jump).isZero() ? R(1) : R(init.jump).abs()),
     mark: init.mark === undefined ? null : clamp(R(init.mark), min, max),
     revision: 0,
   };
+}
+
+/** How far one press of Jump −/+ moves: the configured jump, else the step size. */
+export function jumpSize(s: NumberLineState): Rational {
+  if (s.jump) return s.jump.abs();
+  const n = Math.max(1, Math.round(s.step.toNumber()));
+  return R(n);
 }
 
 function clamp(v: Rational, min: Rational, max: Rational): Rational {
@@ -113,7 +126,7 @@ export const numberLineModel: ToolModel<NumberLineState> = {
     lines: [
       `The marker is at ${displayNum(s.value)}.`,
       `Visible range ${displayNum(s.min)} to ${displayNum(s.max)}, steps of ${displayNum(s.step)}.`,
-      s.mark ? `A reference marker is at ${displayNum(s.mark)}.` : 'Tap "Mark" to drop a reference marker.',
+      s.mark ? `A reference marker is at ${displayNum(s.mark)}.` : 'Tap "Mark here" to drop a reference marker.',
     ],
   }),
 };

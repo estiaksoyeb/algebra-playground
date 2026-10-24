@@ -13,7 +13,7 @@ import { MysteryState, createMystery, mysteryModel } from './mystery';
 import { BalanceState, Pile, balanceModel, parsePileSide } from './balance';
 import { tryParse } from '../math/expression';
 import { TilesState, createTiles, tilesModel } from './tiles';
-import { AreaState, EvalState, createArea, createEval, deriveEval, deriveSimplify } from './expressions';
+import { AreaMode, AreaState, EvalState, createArea, createEval, deriveAreaState, deriveEval, deriveSimplify } from './expressions';
 import { GraphMode, GraphState, createGraph, graphModel } from './graph';
 import { SymbolicView } from './model';
 
@@ -29,7 +29,9 @@ export type ToolStateMap = {
 };
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
-const str = (v: unknown, fallback: string): string => (typeof v === 'string' && v.length <= 200 ? v : fallback);
+const str = (v: unknown, fallback: string): string =>
+  // Lesson text writes plain numbers (a: 2); they are the same factor as "2".
+  typeof v === 'number' && Number.isFinite(v) ? String(v) : typeof v === 'string' && v.length <= 200 ? v : fallback;
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
 const clampNum = (v: number): number => Math.max(-200, Math.min(200, v));
 
@@ -64,7 +66,7 @@ export function defaultStateFor(id: ToolId): ToolStateMap[ToolId] {
     case 'simplify':
       return { expression: '2x + 3 + 4x' };
     case 'area':
-      return { ...createArea(), a: 'x + 1', b: 'x', c: '1' };
+      return createArea({ mode: 'distribute', a: '2', b: 'x', c: '3' });
     case 'graph':
       return graphModel.defaultState();
   }
@@ -102,6 +104,7 @@ export function stateFromRaw(id: ToolId, raw: unknown): ToolStateMap[ToolId] {
         max: Rational.of(hi),
         step: rat(o.step, 1).abs().isZero() ? Rational.ONE : rat(o.step, 1).abs(),
         addend,
+        jump: o.jump === undefined || o.jump === null ? null : rat(o.jump, 1).abs().isZero() ? Rational.ONE : rat(o.jump, 1).abs(),
         mark: o.mark === undefined || o.mark === null ? null : Rational.of(clamp(rat(o.mark, 0).toNumber())),
         revision: int(o.revision, 0, 0, 1e9),
       } as NumberLineState;
@@ -150,18 +153,36 @@ export function stateFromRaw(id: ToolId, raw: unknown): ToolStateMap[ToolId] {
       return createEval({ expression: str(o.expression, '2x + 3').slice(0, 120), x: int(o.x, 4, -50, 50) });
     case 'simplify':
       return { expression: str(o.expression, '2x + 3 + 4x').slice(0, 120) };
-    case 'area':
+    case 'area': {
+      // A lesson may name the mode; otherwise the keys it supplies say which picture it
+      // means (c is only meaningful for a(b + c), so a step that sets c wants distribute).
+      const mode: AreaMode =
+        o.mode === 'binomial' || o.mode === 'distribute'
+          ? o.mode
+          : o.c !== undefined
+            ? 'distribute'
+            : o.b !== undefined
+              ? 'binomial'
+              : 'distribute';
+      const base = createArea({ mode });
       return {
-        a: str(o.a, 'x + 1').slice(0, 40),
-        b: str(o.b, 'x').slice(0, 40),
-        c: str(o.c, '1').slice(0, 40),
+        mode,
+        a: str(o.a, base.a).slice(0, 40),
+        b: str(o.b, base.b).slice(0, 40),
+        c: str(o.c, base.c).slice(0, 40),
       };
+    }
     case 'graph': {
       const modes: GraphMode[] = ['explore', 'line', 'quadratic', 'system'];
       const point = o.point && typeof o.point === 'object' ? (o.point as Record<string, unknown>) : {};
+      const mode: GraphMode = modes.includes(o.mode as GraphMode) ? (o.mode as GraphMode) : 'line';
+      // A parabola is ax² + bx + c, so its constant term arrives as `c`; the field that
+      // holds it is `m` (the model keeps one number for "how far the rule is raised").
+      // Accept either key, and default to 0 so y = x² is not silently y = x² + 1.
+      const quadraticConstant = mode === 'quadratic' ? clampNum(num(o.c ?? o.m, 0)) : clampNum(num(o.m, 1));
       return createGraph({
-        mode: modes.includes(o.mode as GraphMode) ? (o.mode as GraphMode) : 'line',
-        m: clampNum(num(o.m, 1)),
+        mode,
+        m: quadraticConstant,
         b: clampNum(num(o.b, 0)),
         m2: clampNum(num(o.m2, 1)),
         b2: clampNum(num(o.b2, 0)),
@@ -196,7 +217,9 @@ export function symbolicFor<S extends ToolId>(id: S, state: ToolStateMap[S]): Sy
     }
     case 'area': {
       const a = state as AreaState;
-      return { latex: '', text: `(${a.a})(${a.b} + ${a.c})` };
+      const d = deriveAreaState(a);
+      const shown = a.mode === 'binomial' ? `(${a.a})(${a.b})` : `${a.a}(${a.b} + ${a.c})`;
+      return { latex: '', text: d.ok ? `${shown} = ${d.total.text}` : shown };
     }
     case 'graph':
       return graphModel.symbolic(state as GraphState);

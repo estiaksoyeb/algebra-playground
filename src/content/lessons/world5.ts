@@ -218,7 +218,7 @@ export const WORLD5_LESSONS: Lesson[] = [
         title: 'Find what is shared',
         body: '6x + 9 has a common factor 3: 6x + 9 = 3(2x + 3). Expanding gives back 6x + 9, so it checks.',
         math: '6x + 9 = 3(2x + 3)',
-        visual: { tool: 'simplify', initialState: { expression: '3(2x+3)' } },
+        visual: { tool: 'area', initialState: { mode: 'distribute', a: 3, b: '2x', c: 3 } },
       },
       {
         type: 'teach',

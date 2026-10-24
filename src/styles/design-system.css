@@ -1363,8 +1363,8 @@ label.choice:has(> input[type='radio']) {
 }
 
 /*
- * The inline tool used inside lessons. Before this it had no rule at all, so its heading,
- * canvas, action bar and "Try it here" line were flush against the surrounding card text.
+ * The inline tool used inside lessons. Before this it had no rule at all, so its heading
+ * and canvas were flush against the surrounding card text.
  */
 .embedded-tool {
   display: flex;
@@ -1375,19 +1375,21 @@ label.choice:has(> input[type='radio']) {
   border-top: 1px solid var(--line);
   min-width: 0;
 }
-/*
- * Separates the canvas from the actions with space, not a rule: a full-width border here
- * landed directly on top of the "Try it here" panel and read as a stray seam.
- */
+/* The actions sit under the canvas, separated by space rather than another rule. */
 .embedded-tool-bar {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: var(--sp-2) var(--sp-3);
 }
 .embedded-tool-bar .btn-row {
   gap: var(--sp-2);
 }
-/* "Try it here": give the sentence its own quiet panel instead of a bare line. */
+/*
+ * Kept for any remaining quiet note panel. The lesson-foot "Try it here" hand-off was
+ * removed (it pulled learners mid-step); the rules stay so nothing else inherits bare text.
+ */
 .embedded-tool-note {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);

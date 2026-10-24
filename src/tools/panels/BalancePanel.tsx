@@ -12,13 +12,15 @@ export interface BalancePanelProps {
   history: HistoryState<BalanceState>;
   onChange: (h: HistoryState<BalanceState>) => void;
   onProblem?: (message: string) => void;
+  /** True inside a lesson step: the state-description card is left out. */
+  embedded?: boolean;
 }
 
 /**
  * Balance workspace. The displayed equation, the scale and the "check" result are all
  * derived from the same BalanceState via the math engine.
  */
-export function BalancePanel({ history, onChange, onProblem, level }: BalancePanelProps) {
+export function BalancePanel({ history, onChange, onProblem, level, embedded }: BalancePanelProps) {
   const state = history.present;
   const [amount, setAmount] = useState(3);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error' | 'info'; text: string } | null>(null);
@@ -55,6 +57,16 @@ export function BalancePanel({ history, onChange, onProblem, level }: BalancePan
   };
 
   const plain = equationText(eq);
+  /**
+   * In a lesson the answer must not be handed over before the work: x is shown only
+   * once the equation is down to "x = number" (one x-block on one side, units only on
+   * the other), or after the learner asks for "Check the solution". The Playground
+   * always shows it, because there the pill is a readout, not an answer key.
+   */
+  const isolated = state.left.x === 1 && state.right.x === 0 && state.left.units === 0
+    ? true
+    : state.right.x === 1 && state.left.x === 0 && state.right.units === 0;
+  const showSolution = !embedded || isolated || checked !== null;
   return (
     <div className="stack">
       <ToolHeader level={level} title="Equation balance" description="Both sides must stay equal. Add or subtract the same amount on each side and watch the equation change with the scale." />
@@ -62,9 +74,11 @@ export function BalancePanel({ history, onChange, onProblem, level }: BalancePan
         label="Equation"
         latex={<Math tex={sym.latex} label={sym.text} />}
       >
-        <span className="pill" data-testid="solution-pill">
-          {sol ? `x = ${sol.toString()}` : 'no solution'}
-        </span>
+        {showSolution && (
+          <span className="pill" data-testid="solution-pill">
+            {sol ? `x = ${sol.toString()}` : 'no solution'}
+          </span>
+        )}
       </EquationStrip>
       <div className="tool-canvas">
         <BalanceView state={state} />
@@ -117,10 +131,7 @@ export function BalancePanel({ history, onChange, onProblem, level }: BalancePan
           </div>
         )}
       </ToolControls>
-      <DescriptionList
-        title={desc.title}
-        lines={[...desc.lines, `Symbolically: ${plain}.`]}
-      />
+      {!embedded && <DescriptionList title={desc.title} lines={[...desc.lines, `Symbolically: ${plain}.`]} />}
     </div>
   );
 }

@@ -164,7 +164,7 @@ describe('symbolicFor', () => {
   });
 
   it('shows the area model as a product of the two factors', () => {
-    const sym = symbolicFor('area', { a: 'x + 1', b: 'x', c: '2' });
+    const sym = symbolicFor('area', { mode: 'distribute', a: 'x + 1', b: 'x', c: '2' });
     expect(sym.text).toContain('x + 1');
   });
 

@@ -12,10 +12,12 @@ export interface MysteryPanelProps {
   state: MysteryState;
   onChange: (s: MysteryState) => void;
   onProblem?: (message: string) => void;
+  /** True inside a lesson step: the state-description card is left out. */
+  embedded?: boolean;
 }
 
 /** Hidden number x, copies of it and extra ones. Everything is derived from the state. */
-export function MysteryPanel({ state, onChange, level }: MysteryPanelProps) {
+export function MysteryPanel({ state, onChange, level, embedded }: MysteryPanelProps) {
   const sym = mysteryModel.symbolic(state);
   const desc = mysteryModel.describe(state);
   const [targetInput, setTargetInput] = useState(state.target === undefined ? '' : String(state.target));
@@ -117,7 +119,7 @@ export function MysteryPanel({ state, onChange, level }: MysteryPanelProps) {
           </p>
         )}
       </ToolControls>
-      <DescriptionList title={desc.title} lines={desc.lines} />
+      {!embedded && <DescriptionList title={desc.title} lines={desc.lines} />}
     </div>
   );
 }

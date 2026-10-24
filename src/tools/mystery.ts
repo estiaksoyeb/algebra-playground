@@ -58,8 +58,15 @@ export const mysteryModel: ToolModel<MysteryState> = {
       title: 'Mystery number',
       lines: [
         s.reveal ? `The box (x) holds ${s.value}.` : 'The box (x) hides a number you have to find.',
-        s.copies === 1 ? 'There is one box.' : `There are ${s.copies} identical boxes, each holding the same ${s.value}.`,
-        `${s.copies} × ${s.value}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''} = ${total}.`,
+        // Before the reveal nothing may state the hidden value: the boxes are the puzzle.
+        s.copies === 1
+          ? 'There is one box.'
+          : s.reveal
+            ? `There are ${s.copies} identical boxes, each holding the same ${s.value}.`
+            : `There are ${s.copies} identical boxes, each holding the same unknown number x.`,
+        s.reveal
+          ? `${s.copies} × ${s.value}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''} = ${total}.`
+          : `${s.copies === 1 ? 'x' : `${s.copies}x`}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''} = ${total}, so the total is ${total} right now.`,
         s.target !== undefined ? (total === s.target ? `The total matches the target ${s.target}. x = ${s.value}.` : `The total ${total} does not match the target ${s.target} yet.`) : 'Change x and watch the total change.',
       ],
     };

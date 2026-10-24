@@ -1,11 +1,9 @@
 import { Rational } from '../../math/rational';
-import { NumberLineState, jump, numberLineModel, setMark, setNumberLineValue, stepBy, zoom } from '../numberline';
+import { NumberLineState, jump, jumpSize, numberLineModel, setMark, setNumberLineValue, stepBy, zoom } from '../numberline';
 import { NumberLineView } from '../views/NumberLineView';
 import { DescriptionList, EquationStrip, Stepper, ToolControls, ToolHeader } from './shared';
 import { MathView as Math } from '../../components/MathComp';
 import { displayNum } from '../numberline';
-
-const num = { round: (n: number) => globalThis.Math.round(n), abs: (n: number) => globalThis.Math.abs(n), max: (a: number, b: number) => globalThis.Math.max(a, b), min: (a: number, b: number) => globalThis.Math.min(a, b) };
 
 export interface PanelProps<S> {
   state: S;
@@ -13,7 +11,7 @@ export interface PanelProps<S> {
   onProblem?: (message: string) => void;
 }
 
-export function NumberLinePanel({ state, onChange, onProblem, level }: PanelProps<NumberLineState> & { level?: 1 | 2 }) {
+export function NumberLinePanel({ state, onChange, onProblem, level, embedded }: PanelProps<NumberLineState> & { level?: 1 | 2; embedded?: boolean }) {
   const setValue = (v: Rational) => {
     const r = setNumberLineValue(state, v);
     if (r.ok && r.state) onChange(r.state);
@@ -31,11 +29,10 @@ export function NumberLinePanel({ state, onChange, onProblem, level }: PanelProp
   };
   const sym = numberLineModel.symbolic(state);
   const desc = numberLineModel.describe(state);
-  const jumpAmount = Number(state.step.toNumber() > 0 ? num.max(1, num.round(state.step.toNumber())) : 1);
 
   return (
     <div className="stack">
-      <ToolHeader level={level} title="Number line" description="Tap or drag the line, or use the buttons. The equation always matches the marker." />
+      <ToolHeader level={level} title="Number line" description="Tap the line or use the buttons below. The equation always matches the marker." />
       <EquationStrip label="Position" latex={<Math tex={sym.latex} label={sym.text} />} />
       <div className="tool-canvas">
         <NumberLineView state={state} onChange={setValue} idPrefix="nl" />
@@ -48,11 +45,11 @@ export function NumberLinePanel({ state, onChange, onProblem, level }: PanelProp
           <button type="button" className="btn btn-secondary" onClick={() => step(1)} aria-label="Step right">
             {displayNum(state.step)} →
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => doJump(Rational.of(-jumpAmount))} data-testid="jump-left">
-            Jump −{jumpAmount}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => doJump(jumpSize(state).neg())} data-testid="jump-left">
+            Jump −{displayNum(jumpSize(state))}
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => doJump(Rational.of(jumpAmount))} data-testid="jump-right">
-            Jump +{jumpAmount}
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => doJump(jumpSize(state))} data-testid="jump-right">
+            Jump +{displayNum(jumpSize(state))}
           </button>
         </div>
         <div className="btn-row">
@@ -81,7 +78,8 @@ export function NumberLinePanel({ state, onChange, onProblem, level }: PanelProp
           onChange={(v) => setValue(Rational.of(v))}
         />
       </ToolControls>
-      <DescriptionList title={desc.title} lines={desc.lines} />
+      {/* Lesson steps show the lesson's own explanation; the card only repeats state. */}
+      {!embedded && <DescriptionList title={desc.title} lines={desc.lines} />}
     </div>
   );
 }

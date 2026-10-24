@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GraphState, graphModel, quadraticRoots, setPoint, systemSolution, tableOfValues } from '../graph';
+import { GraphState, graphModel, quadraticRoots, quadraticVertex, setPoint, systemSolution, tableOfValues } from '../graph';
 import { GraphView } from '../views/GraphView';
 import { Stepper, ToolControls, ToolHeader } from './shared';
 import { MathView as Math } from '../../components/MathComp';
@@ -12,6 +12,8 @@ export interface GraphPanelProps {
   level?: 1 | 2;
   state: GraphState;
   onChange: (s: GraphState) => void;
+  /** True inside a lesson step: the state-description card is left out. */
+  embedded?: boolean;
 }
 
 const MODES: { id: GraphState['mode']; label: string }[] = [
@@ -24,11 +26,12 @@ const MODES: { id: GraphState['mode']; label: string }[] = [
 const fmt = (n: number) => (Number.isInteger(n) ? String(n) : Rational.of(n).toString());
 
 /** Graph explorer. Sliders change the parameters; the line, equation and table derive from them. */
-export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
+export function GraphPanel({ state, onChange, level, embedded }: GraphPanelProps) {
   const sym = graphModel.symbolic(state);
   const desc = graphModel.describe(state);
   const [tableOpen, setTableOpen] = useState(state.showTable);
   const roots = state.mode === 'quadratic' ? quadraticRoots(state) : [];
+  const vertex = state.mode === 'quadratic' ? quadraticVertex(state) : null;
   const sol = state.mode === 'system' ? systemSolution(state) : null;
   const table = tableOpen ? tableOfValues(state) : null;
 
@@ -37,13 +40,16 @@ export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
   return (
     <div className="stack">
       <ToolHeader level={level} title="Graph explorer" description="Plot points, straight lines, parabolas and pairs of lines. Sliders change the rule; the picture, table and equation update together." />
-      <div className="tool-tabs" role="tablist" aria-label="Graph mode">
-        {MODES.map((m) => (
-          <button key={m.id} type="button" role="tab" aria-selected={state.mode === m.id} onClick={() => set({ mode: m.id })} data-testid={`graph-mode-${m.id}`}>
-            {m.label}
-          </button>
-        ))}
-      </div>
+      {/* The lesson step teaches one kind of graph; switching mode would leave the step behind. */}
+      {!embedded && (
+        <div className="tool-tabs" role="tablist" aria-label="Graph mode">
+          {MODES.map((m) => (
+            <button key={m.id} type="button" role="tab" aria-selected={state.mode === m.id} onClick={() => set({ mode: m.id })} data-testid={`graph-mode-${m.id}`}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="equation-strip" aria-live="polite">
         <div className="stack-sm" style={{ gap: 0, minWidth: 0, flex: 1 }}>
           <span className="equation-strip-label">Equation</span>
@@ -87,10 +93,11 @@ export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
             <Stepper label="a (x² coefficient)" value={state.a} min={-3} max={3} step={0.5} onChange={(v) => set({ a: v })} format={fmt} />
             <Stepper label="b (x coefficient)" value={state.b} min={-6} max={6} onChange={(v) => set({ b: v })} format={fmt} />
             <Stepper label="c (constant)" value={state.m} min={-8} max={8} onChange={(v) => set({ m: v })} format={fmt} />
-            <div className="feedback feedback-info" role="status">
+            <div className="feedback feedback-info" role="status" data-testid="quadratic-info">
+              {vertex ? `Turning point (${fmt(num.round(vertex.x * 1000) / 1000)}, ${fmt(num.round(vertex.y * 1000) / 1000)}). ` : ''}
               {roots.length
-                ? `The parabola crosses the x-axis at x = ${roots.map((r) => fmt(num.round(r * 1000) / 1000)).join(' and ')}. Those are the solutions of ${fmt(state.a)}x² ${state.b < 0 ? '−' : '+'} ${num.abs(state.b)}x ${state.m < 0 ? '−' : '+'} ${num.abs(state.m)} = 0.`
-                : 'The parabola does not cross the x-axis — the equation has no real solutions here.'}
+                ? `It crosses the x-axis at x = ${roots.map((r) => fmt(num.round(r * 1000) / 1000)).join(' and ')} — the solutions of y = 0.`
+                : 'It does not cross the x-axis, so y = 0 has no real solutions here.'}
             </div>
           </>
         )}
@@ -118,7 +125,7 @@ export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
         {table && (
           <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 'var(--fs-sm)' }} data-testid="graph-table">
             <caption className="xsmall muted" style={{ textAlign: 'left', paddingBottom: 4 }}>
-              Points where x and y are whole numbers interact
+              Table of values for x and y
             </caption>
             <thead>
               <tr>
@@ -147,7 +154,7 @@ export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
           </table>
         )}
       </ToolControls>
-      <section className="card" aria-label="Explanation">
+      {!embedded && <section className="card" aria-label="Explanation">
         <h3 style={{ fontSize: 'var(--fs-md)', marginBottom: 'var(--sp-2)' }}>{desc.title}</h3>
         <ul style={{ margin: 0, paddingLeft: 18 }} className="small">
           {desc.lines.map((l, i) => (
@@ -156,7 +163,7 @@ export function GraphPanel({ state, onChange, level }: GraphPanelProps) {
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
     </div>
   );
 }

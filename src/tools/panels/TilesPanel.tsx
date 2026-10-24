@@ -8,6 +8,8 @@ const num = { round: (n: number) => globalThis.Math.round(n), abs: (n: number) =
 export interface TilesPanelProps {
   /** Heading level for the panel title: 2 when embedded under a lesson h1. */
   level?: 1 | 2;
+  /** True when embedded in a lesson step: the taught layout is locked, so no layout switcher. */
+  embedded?: boolean;
   state: TilesState;
   onChange: (s: TilesState) => void;
   onProblem?: (message: string) => void;
@@ -20,10 +22,22 @@ const LAYOUTS: { id: TilesState['layout']; label: string }[] = [
   { id: 'fraction', label: 'Fraction bar' },
 ];
 
+/**
+ * The heading must match the picture on screen. A lesson on multiplication or fractions
+ * has no x-tiles at all, so it must not be titled "Algebra tiles".
+ */
+export const LAYOUT_COPY: Record<TilesState['layout'], { title: string; description: string }> = {
+  tiles: { title: 'Algebra tiles', description: 'Long tiles represent x. Small unit squares represent 1.' },
+  array: { title: 'Multiplication array', description: 'Rows and columns of unit squares show multiplication as a rectangle.' },
+  groups: { title: 'Equal groups', description: 'Items shared equally into groups show how division works.' },
+  fraction: { title: 'Fraction bar', description: 'Equal parts of a whole bar show fractions visually.' },
+};
+
 /** Four interpretations of one counter/tile state: expression, array, groups, fraction. */
-export function TilesPanel({ state, onChange, onProblem, level }: TilesPanelProps) {
+export function TilesPanel({ state, onChange, onProblem, level, embedded }: TilesPanelProps) {
   const sym = tilesModel.symbolic(state);
   const desc = tilesModel.describe(state);
+  const copy = LAYOUT_COPY[state.layout];
 
   const bump = (dx: number, du: number) => {
     const r = addTiles(state, dx, du);
@@ -43,24 +57,23 @@ export function TilesPanel({ state, onChange, onProblem, level }: TilesPanelProp
 
   return (
     <div className="stack">
-      <ToolHeader
-        level={level}
-        title="Algebra tiles"
-        description="Long tiles are x. Small squares are 1. Add and remove tiles (including negative ones) and watch the expression update."
-      />
-      <div className="tool-tabs" role="tablist" aria-label="Tile layout">
-        {LAYOUTS.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            role="tab"
-            aria-selected={state.layout === l.id}
-            onClick={() => switchLayout(l.id)}
-          >
-            {l.label}
-          </button>
-        ))}
-      </div>
+      <ToolHeader level={level} title={copy.title} description={copy.description} />
+      {/* In a lesson the layout is the one being taught; switching away would contradict the step. */}
+      {!embedded && (
+        <div className="tool-tabs" role="tablist" aria-label="Tile layout">
+          {LAYOUTS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              role="tab"
+              aria-selected={state.layout === l.id}
+              onClick={() => switchLayout(l.id)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="equation-strip" aria-live="polite" data-testid="tiles-equation">
         <div className="stack-sm" style={{ gap: 0, minWidth: 0, flex: 1 }}>
           <span className="equation-strip-label">{state.layout === 'tiles' ? 'Expression' : 'Value'}</span>
@@ -151,7 +164,8 @@ export function TilesPanel({ state, onChange, onProblem, level }: TilesPanelProp
           </>
         )}
       </ToolControls>
-      <section className="card" aria-label="Explanation">
+      {/* Lesson steps carry their own explanation; this card only repeats the state. */}
+      {!embedded && <section className="card" aria-label="Explanation">
         <h3 style={{ fontSize: 'var(--fs-md)', marginBottom: 'var(--sp-2)' }}>{desc.title}</h3>
         <ul style={{ margin: 0, paddingLeft: 18 }} className="small">
           {desc.lines.map((l, i) => (
@@ -160,7 +174,7 @@ export function TilesPanel({ state, onChange, onProblem, level }: TilesPanelProp
             </li>
           ))}
         </ul>
-      </section>
+      </section>}
     </div>
   );
 }

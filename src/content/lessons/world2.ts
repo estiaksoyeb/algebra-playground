@@ -17,7 +17,7 @@ export const WORLD2_LESSONS: Lesson[] = [
         body: 'The number line continues past 0. Numbers to the left are negative. −3 is three steps left of zero. Temperature and debt use these numbers.',
         math: '-3 < 0 < 3',
         visual: { tool: 'numberline', initialState: { value: -3, min: -10, max: 10 } },
-        callout: { kind: 'tip', text: 'Drag the marker left of 0. The label shows a minus sign.' },
+        callout: { kind: 'tip', text: 'Tap a point left of 0 on the line, or use the ← 1 buttons. The label shows a minus sign.' },
       },
       {
         type: 'explore',
@@ -117,7 +117,7 @@ export const WORLD2_LESSONS: Lesson[] = [
         title: 'Subtracting a negative moves right',
         body: 'Subtracting −3 is the opposite of adding −3. You move 3 steps right instead.',
         math: '5 - (-3) = 5 + 3 = 8',
-        visual: { tool: 'numberline', initialState: { value: 5, min: -10, max: 10, addend: 3 } },
+        visual: { tool: 'numberline', initialState: { value: 8, min: -10, max: 10, addend: 3 } },
         callout: { kind: 'why', text: 'Two minuses cancel: subtracting a loss is like gaining. This is why −(−3) = +3.' },
       },
       {
@@ -505,7 +505,7 @@ export const WORLD2_LESSONS: Lesson[] = [
         title: 'Adding decimals',
         body: 'Line up the decimal points so tenths add to tenths. 0.7 + 0.5 = 1.2.',
         math: '0.7 + 0.5 = 1.2',
-        visual: { tool: 'numberline', initialState: { value: 0.7, min: 0, max: 3, step: 0.1, addend: 0.5 } },
+        visual: { tool: 'numberline', initialState: { value: 1.2, min: 0, max: 3, step: 0.1, addend: 0.5 } },
       },
       {
         type: 'check',
