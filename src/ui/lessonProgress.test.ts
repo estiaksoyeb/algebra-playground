@@ -39,6 +39,7 @@ let seq = 0;
 function attempt(over: Partial<AttemptRecord> & { exerciseId: string }): AttemptRecord {
   seq++;
   return {
+    uid: `t-${seq}`,
     conceptId: 'c1',
     lessonId: 'L1',
     answer: '1',

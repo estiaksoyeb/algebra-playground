@@ -41,6 +41,7 @@ export function useAppSession(): ReturnType<typeof useSession> {
     return {
       state,
       progressLesson: (...a) => chosen.progressLesson(...a),
+      pendingLessons: chosen.pendingLessons,
       recordAttempt: (...a) => chosen.recordAttempt(...a),
       passMasteryCheck: (...a) => chosen.passMasteryCheck(...a),
       recordReviewResult: (...a) => chosen.recordReviewResult(...a),

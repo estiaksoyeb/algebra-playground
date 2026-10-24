@@ -1,4 +1,12 @@
-import { test, expect, open, collectConsoleErrors } from './fixtures';
+import {
+  test,
+  expect,
+  open,
+  collectConsoleErrors,
+  storedLessonState,
+  injectLessonSaveFailure,
+  allowLessonSaves,
+} from './fixtures';
 
 /**
  * Lesson flow for the first lesson: teaching steps → practice → mastery check →
@@ -110,21 +118,66 @@ test.describe('completing a lesson', () => {
     await expect(page.getByTestId('next-step')).toBeVisible();
     await page.getByTestId('next-step').click();
     await expect(page.getByText(/Step 2 of/i)).toBeVisible();
-    await expect.poll(async () => page.evaluate(async () => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const req = indexedDB.open('algebra-playground');
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-      const rows = await new Promise<Array<{ currentStep?: number }>>((resolve, reject) => {
-        const req = db.transaction('lessonStates').objectStore('lessonStates').getAll();
-        req.onsuccess = () => resolve(req.result as Array<{ currentStep?: number }>);
-        req.onerror = () => reject(req.error);
-      });
-      return rows[0]?.currentStep;
-    })).toBe(1);
+    await expect.poll(async () => (await storedLessonState(page, 'w1-l1-counting'))?.currentStep).toBe(1);
     await page.reload();
-    await expect(page.getByText(/Step 2 of/i)).toBeVisible();
+    // Exact position, not just "a step is showing": the old assertion also passed while
+    // the player rendered Step 1 and held Step 2 in the database.
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 2 of \d+ · /);
+    // …and the reloaded page did not write its initial step over the saved one.
+    expect((await storedLessonState(page, 'w1-l1-counting'))?.currentStep).toBe(1);
+  });
+
+  test('a reload in the middle of practice comes back to the same exercise', async ({ freshPage: page }) => {
+    await reachPractice(page);
+    await page.getByTestId('next-exercise').click();
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Practice 2 of 4');
+    await expect.poll(async () => storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'practice', index: 1, currentStep: 2 });
+
+    await page.reload();
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Practice 2 of 4');
+    expect(await storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'practice', index: 1 });
+  });
+
+  test('a reload on the mastery check comes back to the same check question', async ({ freshPage: page }) => {
+    await reachPractice(page);
+    await answerPractice(page, PRACTICE);
+    await expect(page.getByText('Mastery check')).toBeVisible();
+    await expect.poll(async () => storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'check', index: 0 });
+
+    await page.reload();
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Check 1 of 2');
+    await expect(page.getByText('Mastery check')).toBeVisible();
+  });
+
+  test('opening the saved lesson from its card (a fresh page load) lands on the saved step', async ({ freshPage: page }) => {
+    // This is the URL the "Continue" card on the learning path links to. The resume test
+    // above reloads an already-open lesson, which can be a different code path.
+    await open(page, '#/learn/w1-l1-counting');
+    await page.getByTestId('next-step').click();
+    await page.getByTestId('next-step').click();
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 3 of \d+ · /);
+    await expect.poll(async () => (await storedLessonState(page, 'w1-l1-counting'))?.currentStep).toBe(2);
+
+    await open(page, '#/learn/w1-l1-counting');
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 3 of \d+ · /);
+  });
+
+  test('a failed save keeps the learner on the step, then Try again advances exactly once', async ({ freshPage: page }) => {
+    await injectLessonSaveFailure(page);
+    await open(page, '#/learn/w1-l1-counting');
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 1 of \d+ · /);
+
+    await page.getByTestId('next-step').click();
+    // The write was refused, so the step must not change and the failure must be visible.
+    await expect(page.getByTestId('save-error')).toBeVisible();
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 1 of \d+ · /);
+    expect(await storedLessonState(page, 'w1-l1-counting')).toBeUndefined();
+
+    await allowLessonSaves(page);
+    await page.getByTestId('retry-save').click();
+    await expect(page.getByTestId('step-indicator')).toHaveText(/^Step 2 of \d+ · /);
+    await expect(page.getByTestId('save-error')).toHaveCount(0);
+    await expect.poll(async () => (await storedLessonState(page, 'w1-l1-counting'))?.currentStep).toBe(1);
   });
 
   test('a lesson opened directly while another is unfinished is still playable', async ({ freshPage: page }) => {

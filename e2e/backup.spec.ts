@@ -16,6 +16,25 @@ async function storedAttempts(page: import('@playwright/test').Page): Promise<nu
   });
 }
 
+/** Count stored history rows by kind (what the learner's record actually is). */
+async function storedHistoryKinds(page: import('@playwright/test').Page): Promise<Record<string, number>> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('algebra-playground');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const rows = await new Promise<{ kind: string }[]>((resolve, reject) => {
+      const req = db.transaction('history').objectStore('history').getAll();
+      req.onsuccess = () => resolve(req.result as { kind: string }[]);
+      req.onerror = () => reject(req.error);
+    });
+    const counts: Record<string, number> = {};
+    for (const r of rows) counts[r.kind] = (counts[r.kind] ?? 0) + 1;
+    return counts;
+  });
+}
+
 const VALID_BACKUP = {
   format: 'algebra-playground-backup',
   formatVersion: 1,
@@ -54,7 +73,14 @@ const VALID_BACKUP = {
     ],
     mastery: [],
     experiments: [],
-    history: [],
+    history: [
+      {
+        kind: 'lesson-complete',
+        lessonId: 'w1-l1-counting',
+        detail: 'Counting & number representation',
+        at: new Date().toISOString(),
+      },
+    ],
     reviews: [],
     reviewLogs: [],
   },
@@ -149,6 +175,29 @@ test.describe('settings: backup and restore', () => {
     await expect(page.getByText('Keep me')).toBeVisible();
     await open(page, '#/learn');
     await expect(page.getByTestId('lesson-w1-l1-counting').locator('.lesson-status')).toHaveAttribute('data-state', 'done');
+  });
+
+  test('importing the same backup twice in merge mode does not duplicate attempts or history', async ({ freshPage: page }) => {
+    await open(page, '#/settings');
+    const importOnce = async () => {
+      await page.getByTestId('import-file').setInputFiles({ name: 'good.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(VALID_BACKUP)) });
+      await page.getByRole('button', { name: /Merge with my progress/i }).click();
+      await expect(page.getByTestId('settings-notice')).toContainText(/Imported \(merge\)/i);
+    };
+
+    await importOnce();
+    expect(await storedAttempts(page)).toBe(1);
+    const attempts = page.locator('.stat').filter({ hasText: 'attempts' }).first().locator('.stat-value');
+    await expect(attempts).toHaveText('1');
+
+    // Second import of the very same file: the attempt is already stored (same uid).
+    await importOnce();
+    expect(await storedAttempts(page)).toBe(1);
+    await expect(attempts).toHaveText('1');
+    await expect(page.getByTestId('settings-notice')).toContainText(/already here/i);
+    // Nothing in the backup's history was stored twice: exactly one imported row plus the
+    // two import audit entries (one per import, by design).
+    expect(await storedHistoryKinds(page)).toEqual({ 'lesson-complete': 1, import: 2 });
   });
 
   test('erasing everything needs confirmation, can be cancelled, and survives a reload', async ({ freshPage: page }) => {

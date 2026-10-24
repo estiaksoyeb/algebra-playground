@@ -15,6 +15,13 @@
  *
  * Import is validated field-by-field. Invalid documents are rejected before any
  * write happens, so existing progress cannot be corrupted by a bad file.
+ *
+ * RECORD IDENTITY
+ * Append-only records (attempts, history, reviewLogs) carry a `uid`: an opaque string
+ * assigned once at creation and exported verbatim. Merge imports skip a row whose uid is
+ * already stored, so importing the same backup twice changes nothing. Backups written
+ * before uids existed are given a deterministic legacy uid derived from the full row
+ * content (plus its occurrence number within the file) -- see `legacyUid`.
  */
 import { DB_VERSION } from './db';
 import {
@@ -28,6 +35,9 @@ import {
   ReviewRecord,
   ReviewLogRecord,
   MasteryState,
+  MergePlan,
+  createUid,
+  isValidUid,
 } from './repositories';
 
 export const BACKUP_FORMAT = 'algebra-playground-backup';
@@ -110,6 +120,59 @@ function cleanNumberRecord(v: unknown): Record<string, number> {
   return out;
 }
 
+/**
+ * Deterministic identity for an append-only row from a backup that has no `uid`.
+ *
+ * The hash covers every persisted field (not just the answer or the timestamp), so two
+ * legitimate records that differ at all stay distinct, while the same legacy file imported
+ * twice yields the same uid and is deduplicated. `occurrence` separates byte-identical
+ * rows *within one file*: those are distinct records written in the same millisecond, and
+ * they must all survive.
+ */
+export function legacyUid(kind: string, fields: unknown[], occurrence: number): string {
+  const text = JSON.stringify([kind, ...fields]);
+  // FNV-1a, 32-bit, twice with different offsets -> 64 bits of stable hex.
+  let h1 = 0x811c9dc5;
+  let h2 = 0xcbf29ce4;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x01000197) >>> 0;
+  }
+  return `legacy:${kind}:${h1.toString(16).padStart(8, '0')}${h2.toString(16).padStart(8, '0')}:${occurrence}`;
+}
+
+/** Assign identities to one validated array, keeping each duplicate *within the file* distinct. */
+function assignUids<T extends object>(
+  rows: T[],
+  kind: string,
+  fieldsOf: (row: T) => unknown[],
+  validUid: (row: T, index: number) => string | undefined,
+): (T & { uid: string })[] {
+  const seen = new Set<string>();
+  const occurrences = new Map<string, number>();
+  return rows.map((row, index) => {
+    let uid = validUid(row, index);
+    if (!uid) {
+      const base = legacyUid(kind, fieldsOf(row), 0);
+      const n = occurrences.get(base) ?? 0;
+      occurrences.set(base, n + 1);
+      uid = legacyUid(kind, fieldsOf(row), n);
+    }
+    if (seen.has(uid)) {
+      // A file that repeats a uid cannot have come from this app; keep both records.
+      let n = 1;
+      let candidate = `${uid}~${n}`;
+      while (seen.has(candidate)) candidate = `${uid}~${++n}`;
+      uid = candidate;
+    }
+    seen.add(uid);
+    return { ...row, uid };
+  });
+}
+
+const rawUid = (item: Record<string, unknown>): string | undefined => (isValidUid(item.uid) ? item.uid : undefined);
+
 export function validateBackup(raw: unknown): ValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -141,6 +204,7 @@ export function validateBackup(raw: unknown): ValidationResult {
       warnings.push('Skipped a lesson state without an id.');
       continue;
     }
+    const currentPhase = item.phase;
     lessonStates.push({
       lessonId: sanitizeText(item.lessonId, 120),
       currentStep: isNum(item.currentStep) ? Math.max(0, Math.floor(item.currentStep)) : 0,
@@ -149,16 +213,22 @@ export function validateBackup(raw: unknown): ValidationResult {
       completed: item.completed === true,
       completedAt: isIso(item.completedAt) ? (item.completedAt as string) : undefined,
       updatedAt: isIso(item.updatedAt) ? (item.updatedAt as string) : new Date(0).toISOString(),
+      // Unknown stages are dropped rather than guessed: the app then resumes on the saved
+      // teaching step, which is what a backup written before stages existed does too.
+      ...(currentPhase === 'teach' || currentPhase === 'practice' || currentPhase === 'check' || currentPhase === 'done' ? { phase: currentPhase } : {}),
+      ...(isNum(item.index) ? { index: Math.max(0, Math.floor(item.index)) } : {}),
     });
   }
 
-  const attempts: AttemptRecord[] = [];
+  const attemptsIn: Omit<AttemptRecord, 'uid'>[] = [];
+  const attemptUids: (string | undefined)[] = [];
   for (const item of arr('attempts')) {
     if (!isObj(item) || !isStr(item.conceptId) || !isStr(item.exerciseId)) {
       warnings.push('Skipped an attempt without a concept or exercise id.');
       continue;
     }
-    attempts.push({
+    attemptUids.push(rawUid(item));
+    attemptsIn.push({
       conceptId: sanitizeText(item.conceptId, 120),
       lessonId: sanitizeText(item.lessonId, 120),
       exerciseId: sanitizeText(item.exerciseId, 120),
@@ -169,6 +239,17 @@ export function validateBackup(raw: unknown): ValidationResult {
       misconception: isStr(item.misconception) ? sanitizeText(item.misconception, 120) : undefined,
       at: isIso(item.at) ? (item.at as string) : new Date().toISOString(),
     });
+  }
+  const attempts: AttemptRecord[] = assignUids<Omit<AttemptRecord, 'uid'>>(
+    attemptsIn,
+    'attempt',
+    (a) => [a.conceptId, a.lessonId, a.exerciseId, a.answer, a.correct, a.hintsUsed, a.attemptNumber, a.misconception ?? null, a.at],
+    (_row, i) => attemptUids[i],
+  );
+  // Only a *supplied* uid that had to be changed deserves a warning; a legacy file with no
+  // uids at all is handled silently by the documented compatibility strategy.
+  if (attempts.some((a, i) => attemptUids[i] !== undefined && a.uid !== attemptUids[i])) {
+    warnings.push('Some attempt identities were repeated in the file; the records were kept with distinct identities.');
   }
 
   const mastery: MasteryRecord[] = [];
@@ -211,10 +292,12 @@ export function validateBackup(raw: unknown): ValidationResult {
     });
   }
 
-  const history: HistoryRecord[] = [];
+  const historyIn: Omit<HistoryRecord, 'uid'>[] = [];
+  const historyUids: (string | undefined)[] = [];
   for (const item of arr('history')) {
     if (!isObj(item) || !isStr(item.kind)) continue;
-    history.push({
+    historyUids.push(rawUid(item));
+    historyIn.push({
       kind: sanitizeText(item.kind, 60) as HistoryRecord['kind'],
       lessonId: isStr(item.lessonId) ? sanitizeText(item.lessonId, 120) : undefined,
       conceptId: isStr(item.conceptId) ? sanitizeText(item.conceptId, 120) : undefined,
@@ -222,6 +305,12 @@ export function validateBackup(raw: unknown): ValidationResult {
       at: isIso(item.at) ? (item.at as string) : new Date().toISOString(),
     });
   }
+  const history: HistoryRecord[] = assignUids<Omit<HistoryRecord, 'uid'>>(
+    historyIn,
+    'history',
+    (h) => [h.kind, h.lessonId ?? null, h.conceptId ?? null, h.detail, h.at],
+    (_row, i) => historyUids[i],
+  );
 
   const reviews: ReviewRecord[] = [];
   for (const item of arr('reviews')) {
@@ -238,16 +327,24 @@ export function validateBackup(raw: unknown): ValidationResult {
     });
   }
 
-  const reviewLogs: ReviewLogRecord[] = [];
+  const reviewLogsIn: Omit<ReviewLogRecord, 'uid'>[] = [];
+  const reviewLogUids: (string | undefined)[] = [];
   for (const item of arr('reviewLogs')) {
     if (!isObj(item) || !isStr(item.conceptId)) continue;
-    reviewLogs.push({
+    reviewLogUids.push(rawUid(item));
+    reviewLogsIn.push({
       conceptId: sanitizeText(item.conceptId, 120),
       at: isIso(item.at) ? (item.at as string) : new Date().toISOString(),
       result: item.result === 'correct' ? 'correct' : 'incorrect',
       assisted: item.assisted === true,
     });
   }
+  const reviewLogs: ReviewLogRecord[] = assignUids<Omit<ReviewLogRecord, 'uid'>>(
+    reviewLogsIn,
+    'reviewLog',
+    (l) => [l.conceptId, l.at, l.result, l.assisted],
+    (_row, i) => reviewLogUids[i],
+  );
 
   let profile: StoredProfile | undefined;
   if (isObj(d.profile) && (d.profile as Record<string, unknown>).id === 'app') {
@@ -302,7 +399,10 @@ export type ImportMode = 'merge' | 'replace';
 
 export interface ImportResult {
   mode: ImportMode;
+  /** What the backup contains (the summary shown in Settings). */
   imported: { lessonStates: number; attempts: number; mastery: number; experiments: number; reviews: number };
+  /** What actually changed the database: rows already present (same uid) were skipped. */
+  applied: { attempts: number; history: number; reviewLogs: number; skipped: number };
   warnings: string[];
 }
 
@@ -313,36 +413,44 @@ const newest = (a: string | undefined, b: string | undefined): string | undefine
 };
 
 /**
- * Apply a validated backup. Never partially applies: replace runs in one transaction
- * after clearing; merge upserts per record (newest updatedAt wins for single-record stores).
+ * Apply a validated backup.
+ *
+ * Both modes commit in exactly one IndexedDB transaction (`replaceAll` clears first;
+ * `mergeAll` writes everything together). A failure at any point leaves every store
+ * exactly as it was, and the rejection is passed to the caller to report honestly.
  */
 export async function applyBackup(repos: Repos, backup: Backup, mode: ImportMode): Promise<ImportResult> {
   const warnings: string[] = [];
   const d = backup.data;
-  const before = {
-    profile: await repos.getProfile(),
-    mastery: new Map((await repos.allMastery()).map((m) => [m.conceptId, m])),
-    reviews: new Map((await repos.allReviews()).map((r) => [r.conceptId, r])),
-    experiments: new Map((await repos.allExperiments()).map((e) => [e.id, e])),
-    lessonStates: new Map((await repos.allLessonStates()).map((l) => [l.lessonId, l])),
-  };
-
-  const to = mergeInto(d, before, mode, warnings);
-  if (mode === 'replace') {
-    await repos.replaceAll(to);
-  } else {
-    for (const ls of to.lessonStates) await repos.putLessonState(ls);
-    for (const m of to.mastery) await repos.putMastery(m);
-    for (const e of to.experiments) await repos.putExperiment(e);
-    for (const r of to.reviews) await repos.putReview(r);
-    if (to.profile) await repos.putProfile(to.profile);
-    await repos.appendAll({ attempts: to.attempts, history: to.history, reviewLogs: to.reviewLogs });
-  }
-  await repos.addHistory({
+  const audit: HistoryRecord = {
+    uid: createUid(),
     kind: 'import',
     detail: `Imported backup (${mode}) with ${d.attempts.length} attempts.`,
     at: new Date().toISOString(),
-  });
+  };
+
+  let applied: ImportResult['applied'];
+  if (mode === 'replace') {
+    await repos.replaceAll({ ...d, history: [...d.history, audit] });
+    applied = { attempts: d.attempts.length, history: d.history.length + 1, reviewLogs: d.reviewLogs.length, skipped: 0 };
+  } else {
+    const before = {
+      profile: await repos.getProfile(),
+      mastery: new Map((await repos.allMastery()).map((m) => [m.conceptId, m])),
+      reviews: new Map((await repos.allReviews()).map((r) => [r.conceptId, r])),
+      experiments: new Map((await repos.allExperiments()).map((e) => [e.id, e])),
+      lessonStates: new Map((await repos.allLessonStates()).map((l) => [l.lessonId, l])),
+    };
+    const plan = mergePlan(d, before, warnings, audit);
+    const report = await repos.mergeAll(plan);
+    applied = {
+      attempts: plan.attempts.length - report.skipped.attempts,
+      history: plan.history.length - report.skipped.history,
+      reviewLogs: plan.reviewLogs.length - report.skipped.reviewLogs,
+      skipped: report.skipped.attempts + report.skipped.history + report.skipped.reviewLogs,
+    };
+    if (applied.skipped > 0) warnings.push(`${applied.skipped} record(s) were already on this device and were not imported again.`);
+  }
 
   return {
     mode,
@@ -353,17 +461,44 @@ export async function applyBackup(repos: Repos, backup: Backup, mode: ImportMode
       experiments: d.experiments.length,
       reviews: d.reviews.length,
     },
+    applied,
     warnings,
   };
 }
 
-type Snapshot = {
+export type Snapshot = {
   profile?: StoredProfile;
   mastery: Map<string, MasteryRecord>;
   reviews: Map<string, ReviewRecord>;
   experiments: Map<string, ExperimentRecord>;
   lessonStates: Map<string, LessonStateRecord>;
 };
+
+/**
+ * Decide what a merge writes. Keyed stores keep their documented rule (newest updatedAt
+ * wins); append-only stores carry every incoming row and let the storage transaction drop
+ * the ones whose uid is already present. The import audit entry is part of the same plan,
+ * so it commits (or fails) with the rest.
+ */
+export function mergePlan(d: BackupData, existing: Snapshot, warnings: string[], audit: HistoryRecord): MergePlan {
+  const updated = <T extends { updatedAt: string }>(local: T | undefined, incoming: T, label: string): T => {
+    if (local && Date.parse(local.updatedAt) > Date.parse(incoming.updatedAt)) {
+      warnings.push(`Kept newer local ${label}.`);
+      return local;
+    }
+    return incoming;
+  };
+  return {
+    profile: d.profile ? updated(existing.profile, d.profile, 'profile') : existing.profile,
+    lessonStates: d.lessonStates.map((l) => updated(existing.lessonStates.get(l.lessonId), l, 'lesson progress')),
+    mastery: d.mastery.map((m) => updated(existing.mastery.get(m.conceptId), m, 'mastery record')),
+    reviews: d.reviews.map((r) => updated(existing.reviews.get(r.conceptId), r, 'review schedule')),
+    experiments: d.experiments.map((e) => updated(existing.experiments.get(e.id), e, 'experiment')),
+    attempts: d.attempts,
+    history: [...d.history, audit],
+    reviewLogs: d.reviewLogs,
+  };
+}
 
 /** Pure merge decision (exported for tests). Newest-updated record wins per key. */
 export function mergeInto(d: BackupData, existing: Snapshot, mode: ImportMode, warnings: string[]): BackupData {
@@ -379,39 +514,21 @@ export function mergeInto(d: BackupData, existing: Snapshot, mode: ImportMode, w
       reviewLogs: d.reviewLogs,
     };
   }
-  const newestBy = <T extends { updatedAt: string }>(
-    local: Map<string, T>,
-    incoming: T[],
-    key: (x: T) => string,
-    label: string,
-  ): T[] =>
-    incoming.map((rec) => {
-      const prev = local.get(key(rec));
-      if (prev && Date.parse(prev.updatedAt) > Date.parse(rec.updatedAt)) {
-        warnings.push(`Kept newer local ${label}.`);
-        return prev;
-      }
-      return rec;
-    });
-
-  const lessonStates = newestBy(existing.lessonStates, d.lessonStates, (l) => l.lessonId, 'lesson progress');
-  const mastery = newestBy(existing.mastery, d.mastery, (m) => m.conceptId, 'mastery record');
-  const reviews = newestBy(existing.reviews, d.reviews, (r) => r.conceptId, 'review schedule');
-  const experiments = newestBy(existing.experiments, d.experiments, (e) => e.id, 'experiment');
-  const useProfile =
-    d.profile && (!existing.profile || Date.parse(d.profile.updatedAt) > Date.parse(existing.profile.updatedAt))
-      ? d.profile
-      : undefined;
-
+  const plan = mergePlan(d, existing, warnings, {
+    uid: 'merge-into:audit',
+    kind: 'import',
+    detail: '',
+    at: new Date(0).toISOString(),
+  });
   return {
-    profile: useProfile ?? existing.profile,
-    lessonStates: [...existing.lessonStates.values()].filter((l) => !lessonStates.some((n) => n.lessonId === l.lessonId)).concat(lessonStates),
-    attempts: d.attempts,
-    mastery: [...existing.mastery.values()].filter((m) => !mastery.some((n) => n.conceptId === m.conceptId)).concat(mastery),
-    experiments: [...existing.experiments.values()].filter((e) => !experiments.some((n) => n.id === e.id)).concat(experiments),
+    profile: plan.profile,
+    lessonStates: plan.lessonStates,
+    attempts: plan.attempts,
+    mastery: plan.mastery,
+    experiments: plan.experiments,
     history: d.history,
-    reviews: [...existing.reviews.values()].filter((r) => !reviews.some((n) => n.conceptId === r.conceptId)).concat(reviews),
-    reviewLogs: d.reviewLogs,
+    reviews: plan.reviews,
+    reviewLogs: plan.reviewLogs,
   };
 }
 

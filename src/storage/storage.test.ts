@@ -7,6 +7,7 @@ import { applyBackup, backupToJson, createBackup, parseBackupJson, validateBacku
 let factory: IDBFactory;
 let repos: Repos;
 let counter = 0;
+let uidSeq = 0;
 
 beforeEach(async () => {
   factory = new IDBFactory();
@@ -23,6 +24,7 @@ const prof = (prefs: Record<string, unknown> = {}): StoredProfile => ({
 });
 
 const attempt = (over: Partial<AttemptRecord> = {}): AttemptRecord => ({
+  uid: `a-${++uidSeq}`,
   conceptId: 'add-negatives',
   lessonId: 'l1',
   exerciseId: 'e1',
@@ -61,7 +63,7 @@ describe('IndexedDB repositories', () => {
       updatedAt: new Date().toISOString(),
     });
     await repos.putExperiment({ id: 'x1', name: 'Test', tool: 'numberline', state: { v: 3 }, createdAt: 'now', updatedAt: 'now' });
-    await repos.addHistory({ kind: 'lesson-complete', detail: 'l1', at: new Date().toISOString() });
+    await repos.addHistory({ uid: 'h-1', kind: 'lesson-complete', detail: 'l1', at: new Date().toISOString() });
     await repos.putReview({ conceptId: 'add-negatives', dueAt: '2030-01-01T00:00:00Z', intervalDays: 1, ease: 2.3, reps: 0, lapses: 0, updatedAt: 'now' });
 
     expect((await repos.getLessonState('l1'))?.currentStep).toBe(2);
@@ -124,7 +126,7 @@ describe('schema migrations', () => {
     });
 
     const db = await openDatabase({ factory, name });
-    expect(db.version).toBe(3);
+    expect(db.version).toBe(4);
     expect(Array.from(db.objectStoreNames)).toContain(STORES.lessonStates);
     expect(Array.from(db.objectStoreNames)).toContain(STORES.reviewLog);
     db.close();

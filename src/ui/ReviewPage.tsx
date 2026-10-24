@@ -90,9 +90,12 @@ export function ReviewPage() {
               conceptAttempts={data.attempts.filter((a) => a.conceptId === item.conceptId)}
               mastery={data.mastery[item.conceptId]}
               submitLabel="Check"
-              onSubmit={(input) => {
-                void session.recordReviewResult(item.conceptId, { correct: input.correct, assisted: input.hintsUsed > 0 });
-                setResults((r) => ({ correct: r.correct + (input.correct ? 1 : 0), total: r.total + 1 }));
+              onSubmit={async (input) => {
+                // The score only moves once the result is stored; a failed write leaves the
+                // card editable and the tally unchanged.
+                const saved = await session.recordReviewResult(item.conceptId, { correct: input.correct, assisted: input.hintsUsed > 0 });
+                if (saved) setResults((r) => ({ correct: r.correct + (input.correct ? 1 : 0), total: r.total + 1 }));
+                return saved;
               }}
               onHint={() => undefined}
             />

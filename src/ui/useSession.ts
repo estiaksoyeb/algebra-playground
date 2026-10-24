@@ -6,18 +6,20 @@
  * awaited and failures set saveStatus='error' with a message — the UI never claims
  * data was saved before the write resolves.
  */
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   Repos,
   StoredProfile,
   LessonStateRecord,
+  LessonPhase,
+  CheckPracticeRecord,
   AttemptRecord,
   MasteryRecord,
   HistoryRecord,
   ReviewRecord,
   ExperimentRecord,
 } from '../storage/repositories';
-import { getStorage } from '../storage/repositories';
+import { createUid, getStorage } from '../storage/repositories';
 import { DB_VERSION, wrapError } from '../storage/db';
 import { applyAttempt, computeScore, decideMastery, emptyMastery } from '../engine/mastery';
 import { scheduleReview, scheduleAfterLesson, initialReview } from '../engine/review';
@@ -37,9 +39,12 @@ export interface SessionData {
 }
 
 export interface SessionState {
+  /** `unavailable` = the initial load failed; nothing is known about saved progress. */
   status: 'loading' | 'ready' | 'unavailable';
   saveStatus: SaveStatus;
   saveError?: string;
+  /** Set when the initial load failed, so a read failure is never reported as "no progress". */
+  loadError?: string;
   lastSavedAt?: string;
   storageAvailable: boolean;
   data: SessionData;
@@ -67,7 +72,7 @@ function reducer(state: SessionState, action: Action): SessionState {
     case 'loaded':
       return { ...state, status: 'ready', data: action.data, storageAvailable: true };
     case 'load-failed':
-      return { ...state, status: 'unavailable', storageAvailable: false, saveError: action.error, saveStatus: 'error' };
+      return { ...state, status: 'unavailable', storageAvailable: false, loadError: action.error, saveError: action.error, saveStatus: 'error' };
     case 'saving':
       return { ...state, saveStatus: 'saving' };
     case 'saved':
@@ -107,6 +112,10 @@ export interface LessonProgressPatch {
   answers?: Record<string, string>;
   hintCounts?: Record<string, number>;
   completed?: boolean;
+  /** Where the learner was, so practice and check positions resume too. */
+  phase?: LessonPhase;
+  index?: number;
+  checkPractice?: Record<string, CheckPracticeRecord>;
 }
 
 export interface RecordAttemptInput {
@@ -121,9 +130,14 @@ export interface RecordAttemptInput {
 export interface SessionApi {
   state: SessionState;
   progressLesson(lessonId: string, patch: LessonProgressPatch): Promise<boolean>;
+  /**
+   * Lesson ids whose progress write has been issued but not yet confirmed by storage.
+   * The lesson runner uses this to lock its controls and to ignore stale data.
+   */
+  pendingLessons: ReadonlySet<string>;
   recordAttempt(input: RecordAttemptInput): Promise<{ ok: boolean; mastery: MasteryRecord | null }>;
-  passMasteryCheck(lessonId: string): Promise<void>;
-  recordReviewResult(conceptId: string, result: { correct: boolean; assisted: boolean }): Promise<void>;
+  passMasteryCheck(lessonId: string): Promise<boolean>;
+  recordReviewResult(conceptId: string, result: { correct: boolean; assisted: boolean }): Promise<boolean>;
   saveExperiment(exp: { id?: string; name: string; tool: string; state: unknown }): Promise<ExperimentRecord | null>;
   getExperiment(id: string): Promise<ExperimentRecord | null>;
   /** Storage handle for backup/export/import; null when storage is unavailable. */
@@ -165,6 +179,18 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
     storageAvailable: true,
     data: emptyData(),
   });
+  // Lesson ids with a progress write in flight. Exposed to the UI so it can lock the
+  // controls and refuse to act on data it knows is already stale.
+  const [pendingLessons, setPendingLessons] = useState<ReadonlySet<string>>(() => new Set());
+  const markPending = useCallback((lessonId: string, pending: boolean) => {
+    setPendingLessons((prev) => {
+      if (prev.has(lessonId) === pending) return prev;
+      const next = new Set(prev);
+      if (pending) next.add(lessonId);
+      else next.delete(lessonId);
+      return next;
+    });
+  }, []);
   const reposRef = useRef<Repos | null>(null);
   // Resolves with the repository connection; waits for the initial load to settle so a
   // screen that opens a saved experiment on a fresh page never races the load.
@@ -234,6 +260,12 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
 
   const progressLesson = useCallback(
     async (lessonId: string, patch: LessonProgressPatch): Promise<boolean> => {
+      // Storage has not been read yet (or the read failed): writing now would replace the
+      // learner's real saved position with whatever the screen happens to show.
+      if (stateRef.current.status !== 'ready') {
+        dispatch({ type: 'save-failed', error: 'Your saved progress has not loaded yet, so nothing was changed.' });
+        return false;
+      }
       const prev = stateRef.current.data.lessonStates[lessonId];
       const now = new Date().toISOString();
       const next: LessonStateRecord = {
@@ -244,32 +276,51 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
         completed: patch.completed ?? prev?.completed ?? false,
         completedAt: patch.completed ? (prev?.completedAt ?? now) : prev?.completedAt,
         updatedAt: now,
+        ...(patch.phase !== undefined ? { phase: patch.phase } : prev?.phase !== undefined ? { phase: prev.phase } : {}),
+        ...(patch.index !== undefined ? { index: patch.index } : prev?.index !== undefined ? { index: prev.index } : {}),
+        ...(patch.checkPractice !== undefined ? { checkPractice: patch.checkPractice } : prev?.checkPractice !== undefined ? { checkPractice: prev.checkPractice } : {}),
       };
-      dispatch(mergeMarker(latestDataRef.current, 'lessonStates', (d) => ({ lessonStates: { ...d.lessonStates, [lessonId]: next } })));
-      return runSave(async (repos) => {
-        await repos.putLessonState(next);
-        if (patch.completed && !prev?.completed) {
-          const lesson = LESSON_BY_ID[lessonId];
-          const hist: HistoryRecord = { kind: 'lesson-complete', lessonId, detail: lesson?.title ?? lessonId, at: now };
-          await repos.addHistory(hist);
-          dispatch(mergeMarker(latestDataRef.current, 'history', (d) => ({ history: [...d.history, hist] })));
-          // schedule reviews for the lesson's concepts
-          for (const conceptId of lesson?.conceptIds ?? []) {
-            const existing = stateRef.current.data.reviews[conceptId];
-            const review = existing ?? scheduleAfterLesson(conceptId, new Date(now));
-            await repos.putReview(review);
-            dispatch(mergeMarker(latestDataRef.current, 'reviews', (d) => ({ reviews: { ...d.reviews, [conceptId]: review } })));
-            const m = stateRef.current.data.mastery[conceptId] ?? emptyMastery(conceptId, now);
-            if (m.state === 'not-introduced') {
-              const introduced = { ...m, state: 'introduced' as const, updatedAt: now };
-              await repos.putMastery(introduced);
-              dispatch(mergeMarker(latestDataRef.current, 'mastery', (d) => ({ mastery: { ...d.mastery, [conceptId]: introduced } })));
-            }
-          }
+      // Completion is special: it also appends a history row, schedules the lesson's
+      // concept reviews and introduces their mastery records. All of it commits in ONE
+      // transaction, so a lesson can never read "complete" on screen while the database
+      // still says otherwise.
+      const justCompleted = Boolean(patch.completed) && !prev?.completed;
+      const lesson = LESSON_BY_ID[lessonId];
+      const history: HistoryRecord[] = [];
+      const reviews: ReviewRecord[] = [];
+      const mastery: MasteryRecord[] = [];
+      if (justCompleted) {
+        history.push({ uid: createUid(), kind: 'lesson-complete', lessonId, detail: lesson?.title ?? lessonId, at: now });
+        for (const conceptId of lesson?.conceptIds ?? []) {
+          const existing = stateRef.current.data.reviews[conceptId];
+          reviews.push(existing ?? scheduleAfterLesson(conceptId, new Date(now)));
+          const m = stateRef.current.data.mastery[conceptId] ?? emptyMastery(conceptId, now);
+          if (m.state === 'not-introduced') mastery.push({ ...m, state: 'introduced' as const, updatedAt: now });
         }
-      });
+      }
+      markPending(lessonId, true);
+      let ok: boolean;
+      try {
+        // The state is NOT dispatched first: nothing on screen may claim the new position
+        // until IndexedDB has confirmed the write.
+        ok = await runSave(async (repos) => {
+          await repos.commitLesson({ state: next, lessonCompleted: justCompleted, history, mastery, reviews });
+        });
+      } finally {
+        markPending(lessonId, false);
+      }
+      if (!ok) return false;
+      dispatch(
+        mergeMarker(latestDataRef.current, 'lessonStates', (d) => ({
+          lessonStates: { ...d.lessonStates, [lessonId]: next },
+          ...(history.length ? { history: [...d.history, ...history] } : {}),
+          ...(reviews.length ? { reviews: { ...d.reviews, ...Object.fromEntries(reviews.map((r) => [r.conceptId, r])) } } : {}),
+          ...(mastery.length ? { mastery: { ...d.mastery, ...Object.fromEntries(mastery.map((m) => [m.conceptId, m])) } } : {}),
+        })),
+      );
+      return true;
     },
-    [runSave],
+    [runSave, markPending],
   );
 
   const recordAttempt = useCallback(
@@ -278,6 +329,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
       const conceptId = input.exercise.conceptId;
       const currentAttempts = stateRef.current.data.attempts.filter((a) => a.exerciseId === input.exercise.id);
       const attemptRecord: AttemptRecord = {
+        uid: createUid(),
         conceptId,
         lessonId: input.lessonId,
         exerciseId: input.exercise.id,
@@ -288,79 +340,104 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
         misconception: input.misconception,
         at: now,
       };
-      const attemptWithId: AttemptRecord = { ...attemptRecord, id: undefined };
-      const conceptAttempts = [...stateRef.current.data.attempts.filter((a) => a.conceptId === conceptId), attemptWithId];
+      const conceptAttempts = [...stateRef.current.data.attempts.filter((a) => a.conceptId === conceptId), attemptRecord];
       const baseMastery = stateRef.current.data.mastery[conceptId] ?? emptyMastery(conceptId, now);
       const withEvidence = applyAttempt(baseMastery, { correct: input.correct, hintsUsed: input.hintsUsed, variety: input.exercise.variety, at: now }, now);
       const lesson = LESSON_BY_ID[input.lessonId];
       const decision = decideMastery(withEvidence, conceptAttempts, lesson?.mastery, { previousState: baseMastery.state });
       const nextMastery: MasteryRecord = { ...withEvidence, state: decision.state, score: computeScore(withEvidence), updatedAt: now };
 
-      dispatch(mergeMarker(latestDataRef.current, 'attempts', (d) => ({ attempts: [...d.attempts, attemptWithId] })));
+      // The attempt and its mastery record commit together. The attempt only enters the
+      // session state (and the "already answered" UI) once storage has accepted it.
+      let id = 0;
       const ok = await runSave(async (repos) => {
-        const id = await repos.addAttempt(attemptRecord);
-        attemptWithId.id = id;
-        await repos.putMastery(nextMastery);
+        id = await repos.commitAttempt(attemptRecord, nextMastery);
       });
-      if (ok) {
-        dispatch(mergeMarker(latestDataRef.current, 'mastery', (d) => ({ mastery: { ...d.mastery, [conceptId]: nextMastery } })));
-      }
-      return { ok, mastery: ok ? nextMastery : null };
+      if (!ok) return { ok: false, mastery: null };
+      dispatch(
+        mergeMarker(latestDataRef.current, 'attempts', (d) => ({
+          attempts: [...d.attempts, { ...attemptRecord, id }],
+          mastery: { ...d.mastery, [conceptId]: nextMastery },
+        })),
+      );
+      return { ok: true, mastery: nextMastery };
     },
     [runSave],
   );
 
   const passMasteryCheck = useCallback(
-    async (lessonId: string): Promise<void> => {
+    async (lessonId: string): Promise<boolean> => {
       const lesson = LESSON_BY_ID[lessonId];
-      if (!lesson) return;
+      if (!lesson) return true;
       const now = new Date().toISOString();
-      await runSave(async (repos) => {
-        for (const conceptId of lesson.conceptIds) {
-          const prev = stateRef.current.data.mastery[conceptId] ?? emptyMastery(conceptId, now);
-          const conceptAttempts = stateRef.current.data.attempts.filter((a) => a.conceptId === conceptId);
-          const decision = decideMastery(prev, conceptAttempts, lesson.mastery, { checkPassed: true, previousState: prev.state });
-          const next: MasteryRecord = { ...prev, state: decision.state, updatedAt: now };
-          await repos.putMastery(next);
-          dispatch(mergeMarker(latestDataRef.current, 'mastery', (d) => ({ mastery: { ...d.mastery, [conceptId]: next } })));
-          if (prev.state !== 'established' && decision.state === 'established') {
-            await repos.addHistory({ kind: 'mastery', conceptId, lessonId, detail: `Mastered ${conceptId}`, at: now });
+      const nextMastery: MasteryRecord[] = [];
+      for (const conceptId of lesson.conceptIds) {
+        const prev = stateRef.current.data.mastery[conceptId] ?? emptyMastery(conceptId, now);
+        const conceptAttempts = stateRef.current.data.attempts.filter((a) => a.conceptId === conceptId);
+        const decision = decideMastery(prev, conceptAttempts, lesson.mastery, { checkPassed: true, previousState: prev.state });
+        nextMastery.push({ ...prev, state: decision.state, updatedAt: now });
+      }
+      const ok = await runSave(async (repos) => {
+        for (const next of nextMastery) await repos.putMastery(next);
+        for (const next of nextMastery) {
+          const prev = stateRef.current.data.mastery[next.conceptId];
+          if (prev?.state !== 'established' && next.state === 'established') {
+            await repos.addHistory({ uid: createUid(), kind: 'mastery', conceptId: next.conceptId, lessonId, detail: `Mastered ${next.conceptId}`, at: now });
           }
         }
       });
+      if (ok) {
+        dispatch(
+          mergeMarker(latestDataRef.current, 'mastery', (d) => ({
+            mastery: { ...d.mastery, ...Object.fromEntries(nextMastery.map((m) => [m.conceptId, m])) },
+          })),
+        );
+      }
+      return ok;
     },
     [runSave],
   );
 
   const recordReviewResult = useCallback(
-    async (conceptId: string, result: { correct: boolean; assisted: boolean }): Promise<void> => {
+    async (conceptId: string, result: { correct: boolean; assisted: boolean }): Promise<boolean> => {
       const now = new Date();
       const prev = stateRef.current.data.reviews[conceptId] ?? initialReview(conceptId, now);
       const next = scheduleReview(prev, result, now);
       const mastery = stateRef.current.data.mastery[conceptId];
-      dispatch(mergeMarker(latestDataRef.current, 'reviews', (d) => ({ reviews: { ...d.reviews, [conceptId]: next } })));
-      await runSave(async (repos) => {
-        await repos.putReview(next);
-        await repos.addReviewLog({ conceptId, at: now.toISOString(), result: result.correct ? 'correct' : 'incorrect', assisted: result.assisted });
-        if (mastery) {
-          const updated: MasteryRecord = {
-            ...mastery,
-            lastReviewedAt: now.toISOString(),
-            state:
-              !result.correct && (mastery.state === 'established' || mastery.state === 'provisional')
-                ? 'needs-review'
-                : result.correct && mastery.state === 'needs-review' && !result.assisted
-                  ? mastery.independentCorrect >= 3
-                    ? 'established'
-                    : 'practicing'
-                  : mastery.state,
-            updatedAt: now.toISOString(),
-          };
-          await repos.putMastery(updated);
-          dispatch(mergeMarker(latestDataRef.current, 'mastery', (d) => ({ mastery: { ...d.mastery, [conceptId]: updated } })));
-        }
-        await repos.addHistory({ kind: 'review', conceptId, detail: result.correct ? 'Review answered correctly' : 'Review needs more work', at: now.toISOString() });
+      let updated: MasteryRecord | undefined;
+      if (mastery) {
+        updated = {
+          ...mastery,
+          lastReviewedAt: now.toISOString(),
+          state:
+            !result.correct && (mastery.state === 'established' || mastery.state === 'provisional')
+              ? 'needs-review'
+              : result.correct && mastery.state === 'needs-review' && !result.assisted
+                ? mastery.independentCorrect >= 3
+                  ? 'established'
+                  : 'practicing'
+                : mastery.state,
+          updatedAt: now.toISOString(),
+        };
+      }
+      const history: HistoryRecord = { uid: createUid(), kind: 'review', conceptId, detail: result.correct ? 'Review answered correctly' : 'Review needs more work', at: now.toISOString() };
+      const ok = await runSave(async (repos) => {
+        await repos.commitReview({
+          review: next,
+          log: { uid: createUid(), conceptId, at: now.toISOString(), result: result.correct ? 'correct' : 'incorrect', assisted: result.assisted },
+          mastery: updated,
+          history,
+        });
       });
+      if (!ok) return false;
+      dispatch(
+        mergeMarker(latestDataRef.current, 'reviews', (d) => ({
+          reviews: { ...d.reviews, [conceptId]: next },
+          history: [...d.history, history],
+          ...(updated ? { mastery: { ...d.mastery, [conceptId]: updated } } : {}),
+        })),
+      );
+      return true;
     },
     [runSave],
   );
@@ -379,7 +456,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
       };
       const ok = await runSave(async (repos) => {
         await repos.putExperiment(record);
-        await repos.addHistory({ kind: 'experiment-saved', detail: record.name, at: now });
+        await repos.addHistory({ uid: createUid(), kind: 'experiment-saved', detail: record.name, at: now });
       });
       if (!ok) return null;
       dispatch(mergeMarker(latestDataRef.current, 'experiments', (d) => ({ experiments: [record, ...d.experiments.filter((e) => e.id !== record.id)] })));
@@ -430,7 +507,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
 
   const addHistory = useCallback(
     async (kind: HistoryRecord['kind'], detail: string, extra?: Partial<HistoryRecord>): Promise<void> => {
-      const rec: HistoryRecord = { kind, detail, at: new Date().toISOString(), ...extra };
+      const rec: HistoryRecord = { uid: createUid(), kind, detail, at: new Date().toISOString(), ...extra };
       await runSave(async (repos) => {
         await repos.addHistory(rec);
       });
@@ -495,6 +572,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
     () => ({
       state,
       progressLesson,
+      pendingLessons,
       recordAttempt,
       passMasteryCheck,
       recordReviewResult,
@@ -509,7 +587,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
       clearSaveError,
       resetAll,
     }),
-    [state, progressLesson, recordAttempt, passMasteryCheck, recordReviewResult, saveExperiment, getExperiment, getRepos, deleteExperiment, addHistory, setPreference, refresh, clearSaveError, resetAll],
+    [state, pendingLessons, progressLesson, recordAttempt, passMasteryCheck, recordReviewResult, saveExperiment, getExperiment, getRepos, deleteExperiment, addHistory, setPreference, refresh, clearSaveError, resetAll],
   );
 }
 

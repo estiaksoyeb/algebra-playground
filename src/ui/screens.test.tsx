@@ -6,7 +6,7 @@ import { SettingsPage } from './SettingsPage';
 import { __resetSessionForTests } from './useAppSession';
 import { __resetStorageMemoForTests } from './useSession';
 import { getStorage } from '../storage/repositories';
-import { Repos, resetStorage } from '../storage/repositories';
+import { IdbRepos, Repos, resetStorage } from '../storage/repositories';
 import { CURRICULUM } from '../content/curriculum';
 
 /**
@@ -101,10 +101,18 @@ describe('LessonPage', () => {
   });
 
   it('reports honestly when progress cannot be saved', async () => {
-    vi.spyOn(repos, 'putLessonState').mockRejectedValue(new Error('Quota exceeded'));
+    const user = userEvent.setup();
     await renderLesson();
-    await tapNextStep(1);
+    // A genuine commit-time failure inside the real transaction, not a mocked repository.
+    (repos as Partial<IdbRepos>).testHooks = {
+      beforeCommit: (kind) => {
+        if (kind === 'lesson') throw new Error('Quota exceeded');
+      },
+    };
+    await user.click(await screen.findByTestId('next-step'));
     expect(await screen.findByText(/could not be saved/i)).toBeInTheDocument();
+    // …and the lesson did not move.
+    expect(screen.getByTestId('step-indicator')).toHaveTextContent(/Step 1 of/);
   });
 
   it('offers no hint on a mastery check, because a helped check cannot prove mastery', async () => {

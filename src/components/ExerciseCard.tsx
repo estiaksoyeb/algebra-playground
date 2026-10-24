@@ -14,8 +14,6 @@ export interface ExerciseProps {
   hintsShown: number;
   conceptAttempts: AttemptRecord[];
   mastery?: MasteryRecord;
-  /** fires for every submitted answer; resolves to whether it could be saved */
-  onSubmit: (input: { answer: string; correct: boolean; hintsUsed: number; misconception?: string }) => void;
   onHint: () => void;
   /** hide the input after the exercise was answered correctly */
   locked?: boolean;
@@ -25,11 +23,42 @@ export interface ExerciseProps {
    * one would create a dead end.
    */
   noHints?: boolean;
+  /**
+   * A storage write for this card is in flight: freeze every control so a double tap
+   * cannot submit twice or move on before the first answer has been saved.
+   */
+  busy?: boolean;
+  /**
+   * Pre-check rehearsal offered on a mastery check: practise a similar question first.
+   * `onAnswer` only remembers the rehearsal for this screen; it is never graded or saved
+   * as an attempt, so it cannot count towards mastery.
+   */
+  rehearse?: { stored?: { answer: string; at: string }; suggestion?: string; onAnswer: (answer: string) => void };
+  /**
+   * Resolves once the parent has confirmed the answer with storage. The verdict is only
+   * shown after that: a card that says "Correct." while the attempt was never written
+   * invites the learner to move on from an answer that does not exist.
+   */
+  onSubmit: (input: { answer: string; correct: boolean; hintsUsed: number; misconception?: string }) => boolean | Promise<boolean>;
   submitLabel?: string;
 }
 
 /** One exercise: answer input or choices, tutor hint ladder, feedback, solution. */
-export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsShown, conceptAttempts, mastery, onSubmit, onHint, locked, noHints, submitLabel }: ExerciseProps) {
+export function ExerciseCard({
+  exercise: ex,
+  lesson,
+  attemptsOnExercise,
+  hintsShown,
+  conceptAttempts,
+  mastery,
+  onSubmit,
+  onHint,
+  locked,
+  noHints,
+  busy,
+  rehearse,
+  submitLabel,
+}: ExerciseProps) {
   const inputId = useId();
   const [raw, setRaw] = useState('');
   const [grade, setGrade] = useState<GradeResult | null>(null);
@@ -43,6 +72,9 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
   /** Hints are always free. A hint on the check records "helped": answered with
    * help it still teaches, but it does not prove the idea stuck. */
   const freeHints = submitLabel !== 'Check';
+  const [pending, setPending] = useState(false);
+  const [rehearsing, setRehearsing] = useState(false);
+  const [rehearsalRaw, setRehearsalRaw] = useState('');
   const liveRef = useRef<HTMLDivElement>(null);
 
   // Reset only when the exercise itself changes (or is locked from outside).
@@ -52,6 +84,9 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
     setSolved(Boolean(locked));
     setTutor(null);
     setRevealed(0);
+    setRehearsing(false);
+    setRehearsalRaw('');
+    setPending(false);
   }, [ex.id, locked]);
 
   // A new persisted attempt count (e.g. after a reload or a lesson re-entry) is
@@ -72,7 +107,8 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
     [ex, lesson, attemptsHere, conceptAttempts, mastery, hintsShown, grade],
   );
 
-  const submit = (value: string) => {
+  const submit = async (value: string) => {
+    if (busy || pending) return;
     const answer = ex.kind === 'choice' ? value : raw;
     if (!answer.trim()) return;
     // Hints are counted as they are taken. Practice hints are free nudges, and a check
@@ -83,9 +119,20 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
     // even when the learner answered it alone.
     const usedHelp = hintsShown;
     const result = gradeAnswer(ex, answer, { hintsUsed: usedHelp });
+    // Freeze the card until storage has accepted the attempt, so a second tap cannot post
+    // the same answer twice and the verdict cannot appear before it was saved.
+    setPending(true);
+    let saved = false;
+    try {
+      saved = await onSubmit({ answer, correct: result.correct, hintsUsed: usedHelp, misconception: result.misconception });
+    } finally {
+      setPending(false);
+    }
+    // Not saved: the parent shows why, and the card stays exactly as it was so the
+    // learner can try again without any "accepted" state having been shown.
+    if (!saved) return;
     setGrade(result);
     setTutor(null);
-    onSubmit({ answer, correct: result.correct, hintsUsed: usedHelp, misconception: result.misconception });
     if (result.correct) {
       setSolved(true);
     } else {
@@ -139,7 +186,7 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
               type="button"
               className="choice"
               aria-pressed={grade?.correct ? false : undefined}
-              disabled={solved}
+              disabled={solved || busy || pending}
               onClick={() => submit(c)}
               data-testid={`choice-${ex.id}-${i}`}
             >
@@ -174,16 +221,16 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
             autoCorrect="off"
             spellCheck={false}
             placeholder={placeholder}
-            disabled={solved}
+            disabled={solved || busy || pending}
             aria-describedby={grade ? `${inputId}-feedback` : undefined}
             data-testid="answer-input"
           />
           <div className="btn-row">
-            <button type="submit" className="btn" disabled={solved || !raw.trim()} data-testid="submit-answer">
+            <button type="submit" className="btn" disabled={solved || busy || pending || !raw.trim()} data-testid="submit-answer">
               {submitLabel ?? 'Check answer'}
             </button>
             {!noHints && (
-              <button type="button" className="btn btn-secondary" onClick={hint} data-testid="hint-button" disabled={solved}>
+              <button type="button" className="btn btn-secondary" onClick={hint} data-testid="hint-button" disabled={solved || busy || pending}>
                 {hintButtonLabel}
               </button>
             )}
@@ -192,9 +239,67 @@ export function ExerciseCard({ exercise: ex, lesson, attemptsOnExercise, hintsSh
       )}
       {ex.kind === 'choice' && !noHints && (
         <div className="btn-row">
-          <button type="button" className="btn btn-secondary btn-sm" onClick={hint} disabled={solved}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={hint} disabled={solved || busy || pending}>
             {hintButtonLabel}
           </button>
+        </div>
+      )}
+      {noHints && rehearse && !solved && (
+        <div className="stack-sm" data-testid="check-rehearsal">
+          {rehearse.stored && !rehearsing && (
+            <p className="small muted mb-0" data-testid="check-rehearsal-stored">
+              You practised this kind of question first: “{rehearse.stored.answer}”. Rehearsal does not count as evidence.
+            </p>
+          )}
+          {!rehearsing ? (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => {
+                setRehearsing(true);
+                setRehearsalRaw('');
+              }}
+              disabled={busy}
+              data-testid="check-rehearse"
+            >
+              Practise this kind of question first
+            </button>
+          ) : (
+            <div className="feedback feedback-info" role="group" aria-label="Practice this kind of question first">
+              <strong>Rehearsal (not counted)</strong>
+              <span style={{ display: 'block' }}>
+                {rehearse.suggestion ?? 'Try one simpler version of this question first. Nothing you type here is graded.'}
+              </span>
+              <label className="field-label" htmlFor={`${inputId}-rehearsal`}>
+                Your rehearsal answer
+              </label>
+              <input
+                id={`${inputId}-rehearsal`}
+                className="input"
+                value={rehearsalRaw}
+                onChange={(e) => setRehearsalRaw(e.target.value)}
+                disabled={busy}
+                data-testid="check-rehearsal-input"
+              />
+              <div className="btn-row" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => {
+                    if (rehearsalRaw.trim()) rehearse.onAnswer(rehearsalRaw.trim());
+                    setRehearsing(false);
+                  }}
+                  disabled={busy || !rehearsalRaw.trim()}
+                  data-testid="check-rehearsal-done"
+                >
+                  Done practising
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRehearsing(false)} disabled={busy} data-testid="check-rehearsal-cancel">
+                  Close
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <div ref={liveRef} tabIndex={-1} aria-live="polite" className="stack-sm">

@@ -106,6 +106,107 @@ export async function whileOffline<T>(page: Page, fn: () => Promise<T>): Promise
   }
 }
 
+/** The saved lesson-progress record for `lessonId`, read straight from IndexedDB. */
+export function storedLessonState(page: Page, lessonId: string): Promise<Record<string, unknown> | undefined> {
+  return page.evaluate(async (id) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('algebra-playground');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const row = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+        const req = db.transaction('lessonStates', 'readonly').objectStore('lessonStates').get(id);
+        req.onsuccess = () => resolve(req.result as Record<string, unknown> | undefined);
+        req.onerror = () => reject(req.error);
+      });
+      // `get` returns a DataCloneError-free plain object; JSON keeps the assertion simple.
+      return row ? (JSON.parse(JSON.stringify(row)) as Record<string, unknown>) : undefined;
+    } finally {
+      // Connections opened here would block a later reload's upgrade; close immediately.
+      db.close();
+    }
+  }, lessonId);
+}
+
+/** Every row of a store, for tests that assert on attempts/history as a whole. */
+export function storedRows(page: Page, store: string): Promise<Record<string, unknown>[]> {
+  return page.evaluate(async (name) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open('algebra-playground');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const rows = await new Promise<unknown[]>((resolve, reject) => {
+        const req = db.transaction(name, 'readonly').objectStore(name).getAll();
+        req.onsuccess = () => resolve(req.result as unknown[]);
+        req.onerror = () => reject(req.error);
+      });
+      return JSON.parse(JSON.stringify(rows)) as Record<string, unknown>[];
+    } finally {
+      db.close();
+    }
+  }, store);
+}
+
+declare global {
+  interface Window {
+    /** Set by `injectLessonSaveFailure`: while true, every lesson-progress write fails. */
+    __failLessonSave?: boolean;
+    /** How many lesson-progress writes the injector has made fail. */
+    __failedLessonSaves?: number;
+  }
+}
+
+/**
+ * Make the next lesson-progress writes fail the way a full disk does.
+ *
+ * The `put` is issued on the real store and then the transaction is aborted before it can
+ * commit, so the request itself is never answered: nothing is written and nothing reports
+ * success. That is the failure the audit forced with a QuotaExceededError and the same
+ * one a browser abort produces. Set `window.__failLessonSave = false` to let storage work.
+ */
+export async function injectLessonSaveFailure(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    window.__failLessonSave = true;
+    window.__failedLessonSaves = 0;
+    const proto = IDBDatabase.prototype;
+    const original = proto.transaction;
+    proto.transaction = function (this: IDBDatabase, names: string | string[], mode?: IDBTransactionMode, options?: IDBTransactionOptions) {
+      const tx = original.call(this, names, mode, options);
+      const stores = typeof names === 'string' ? [names] : names;
+      if (mode === 'readwrite' && stores.includes('lessonStates') && window.__failLessonSave) {
+        const store = tx.objectStore('lessonStates');
+        const put = store.put.bind(store);
+        // Only writes are sabotaged; reads keep working so the page still loads.
+        Object.defineProperty(store, 'put', {
+          configurable: true,
+          value: (...args: unknown[]) => {
+            const request = (put as (...a: unknown[]) => IDBRequest)(...args);
+            window.__failedLessonSaves = (window.__failedLessonSaves ?? 0) + 1;
+            tx.abort();
+            return request;
+          },
+        });
+      }
+      return tx;
+    } as typeof proto.transaction;
+  });
+}
+
+/** Let lesson-progress writes succeed again after `injectLessonSaveFailure`. */
+export async function allowLessonSaves(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.__failLessonSave = false;
+  });
+}
+
+/** Wait until the lesson controls are live (the player has finished restoring). */
+export async function expectLessonReady(page: Page): Promise<void> {
+  await expect(page.getByTestId('next-step').or(page.getByTestId('prev-step')).or(page.getByTestId('lesson-complete')).first()).toBeVisible();
+}
+
 type Fixtures = {
   /** A page in a brand-new browser context (fresh IndexedDB + service worker). */
   freshPage: Page;

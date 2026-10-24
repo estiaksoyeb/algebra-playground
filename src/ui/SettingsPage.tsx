@@ -98,14 +98,23 @@ export function SettingsPage() {
       const repos = await session.getRepos();
       if (!repos) throw new Error('Storage is unavailable; nothing was imported.');
       const result = await applyBackup(repos, check.backup, mode);
+      // Only refresh from storage once the transaction has actually committed.
       await session.reloadAfterImport();
+      const applied =
+        mode === 'merge'
+          ? ` Added ${result.applied.attempts} attempts and ${result.applied.history} history entries${
+              result.applied.skipped > 0 ? `; ${result.applied.skipped} were already here` : ''
+            }.`
+          : '';
       setNotice({
         kind: 'ok',
-        text: `Imported (${mode}): ${result.imported.lessonStates} lessons, ${result.imported.attempts} attempts, ${result.imported.mastery} mastery records. ${result.warnings.join(' ')}`.trim(),
+        text: `Imported (${mode}): ${result.imported.lessonStates} lessons, ${result.imported.attempts} attempts, ${result.imported.mastery} mastery records.${applied} ${result.warnings.join(' ')}`.trim(),
       });
       setPendingImport(null);
       window.dispatchEvent(new Event(DATA_CHANGED_EVENT));
     } catch (err) {
+      // Nothing was written: the merge is one transaction and the UI state was never
+      // touched, so the screen still shows exactly what is stored.
       setNotice({ kind: 'error', text: `Nothing was imported. ${err instanceof Error ? err.message : 'Unknown error.'}` });
     } finally {
       setBusy(null);

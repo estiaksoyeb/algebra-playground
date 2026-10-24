@@ -6,9 +6,11 @@
  * 1: initial: profile, lessons, attempts, mastery, experiments, history, review, meta
  * 2: add lessonStates store (resumable per-lesson progress) and index on attempts.topic
  * 3: add reviewLog store
+ * 4: add unique `uid` index to attempts, history, reviewLog (stable import identity);
+ *    backfill a uid on existing rows so no historical data is lost or left unidentifiable
  */
 export const DB_NAME = 'algebra-playground';
-export const DB_VERSION = 3;
+export const DB_VERSION = 4;
 
 export const STORES = {
   /** kv: single document app profile / preferences (id = 'app') */
@@ -70,7 +72,43 @@ export const MIGRATIONS: Record<number, Migration> = {
   3: (db) => {
     db.createObjectStore(STORES.reviewLog, { keyPath: 'id', autoIncrement: true }).createIndex('conceptId', 'conceptId');
   },
+  4: (_db, tx) => {
+    // Append-only stores gain a unique logical identity. Existing rows are backfilled by
+    // `backfillUids` (below, from `repairSchema`), so a later export carries a uid and a
+    // re-import of that export cannot duplicate them.
+    for (const store of [STORES.attempts, STORES.history, STORES.reviewLog]) ensureUidIndex(tx.objectStore(store));
+  },
 };
+
+/**
+ * Create the unique `uid` index. Row backfill happens separately in `backfillUids`.
+ *
+ * The two are split because the index must exist before the upgrade transaction commits
+ * (a `createIndex` issued from a request callback is unreliable across IndexedDB
+ * implementations), while the backfill needs a read request to know which rows are old.
+ */
+function ensureUidIndex(store: IDBObjectStore): void {
+  if (!store.indexNames.contains('uid')) store.createIndex('uid', 'uid', { unique: true });
+}
+
+/** Give every pre-existing append-only row a uid. Must run inside the upgrade transaction. */
+function backfillUids(tx: IDBTransaction): void {
+  for (const name of [STORES.attempts, STORES.history, STORES.reviewLog]) {
+    const store = tx.objectStore(name);
+    if (store.keyPath !== 'id') continue;
+    const rowsReq = store.getAll();
+    rowsReq.onsuccess = () => {
+      for (const row of rowsReq.result as Record<string, unknown>[]) {
+        if (typeof row.uid === 'string' && row.uid !== '') continue;
+        // These stores use in-line keys: the key must travel inside the value only (passing
+        // it as the second argument is a DataError), and `row.id` is present in the
+        // returned records because it is part of the stored value. The primary key is
+        // already unique within the store, so `migrated:<id>` is too.
+        store.put({ ...row, uid: `migrated:${String(row.id)}` });
+      }
+    };
+  }
+}
 
 /** Ensure every expected store/index exists even if a migration was interrupted (defensive repair). */
 function repairSchema(db: IDBDatabase, tx: IDBTransaction): void {
@@ -79,23 +117,30 @@ function repairSchema(db: IDBDatabase, tx: IDBTransaction): void {
     if (names.includes(name)) return tx.objectStore(name);
     return db.createObjectStore(name, { keyPath, autoIncrement });
   };
+  // Indexes on a store that already exists must be created through the upgrade
+  // transaction; the store handle returned above is that same live store.
+  const ensureIndex = (store: IDBObjectStore | null, name: string, keyPath: string, opts?: IDBIndexParameters): void => {
+    if (store && !store.indexNames.contains(name)) store.createIndex(name, keyPath, opts);
+  };
   need(STORES.profile, 'id');
   const attempts = need(STORES.attempts, 'id', true);
-  attempts?.indexNames.contains('conceptId') === false && attempts.createIndex('conceptId', 'conceptId');
+  ensureIndex(attempts, 'conceptId', 'conceptId');
   const mastery = need(STORES.mastery, 'conceptId');
-  mastery?.indexNames.contains('state') === false && mastery.createIndex('state', 'state');
+  ensureIndex(mastery, 'state', 'state');
   const experiments = need(STORES.experiments, 'id');
-  experiments?.indexNames.contains('updatedAt') === false && experiments.createIndex('updatedAt', 'updatedAt');
+  ensureIndex(experiments, 'updatedAt', 'updatedAt');
   const history = need(STORES.history, 'id', true);
-  history?.indexNames.contains('at') === false && history.createIndex('at', 'at');
+  ensureIndex(history, 'at', 'at');
   const review = need(STORES.review, 'conceptId');
-  review?.indexNames.contains('dueAt') === false && review.createIndex('dueAt', 'dueAt');
+  ensureIndex(review, 'dueAt', 'dueAt');
   need(STORES.meta, 'key');
   const lessonStates = need(STORES.lessonStates, 'lessonId');
-  lessonStates?.indexNames.contains('updatedAt') === false && lessonStates.createIndex('updatedAt', 'updatedAt');
-  attempts?.indexNames.contains('lessonId') === false && attempts.createIndex('lessonId', 'lessonId');
+  ensureIndex(lessonStates, 'updatedAt', 'updatedAt');
+  ensureIndex(attempts, 'lessonId', 'lessonId');
   const reviewLog = need(STORES.reviewLog, 'id', true);
-  reviewLog?.indexNames.contains('conceptId') === false && reviewLog.createIndex('conceptId', 'conceptId');
+  ensureIndex(reviewLog, 'conceptId', 'conceptId');
+  for (const store of [attempts, history, reviewLog]) if (store) ensureUidIndex(store);
+  backfillUids(tx);
 }
 
 export interface OpenOptions {

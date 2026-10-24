@@ -11,6 +11,7 @@ import { Rational } from '../math/rational';
 const ex = (id: string) => CURRICULUM.lessons.flatMap((l) => l.exercises).find((e) => e.id === id)!;
 
 const attempt = (over: Partial<AttemptRecord>): AttemptRecord => ({
+  uid: `t-${Math.random().toString(36).slice(2)}`,
   conceptId: 'c',
   lessonId: 'l',
   exerciseId: 'e',

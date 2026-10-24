@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LESSON_BY_ID, WORLD_BY_ID, nextLessonInOrder, prerequisitesMet } from '../content/curriculum';
 import { Exercise, Lesson } from '../content/types';
 import { ExerciseCard } from '../components/ExerciseCard';
@@ -6,6 +6,7 @@ import { MathView as Math } from '../components/MathComp';
 import { CalmCallout, StepVisual } from '../components/StepVisual';
 import { masteryLabel } from '../engine/mastery';
 import { nextActionAfterLesson, masteryProgress, pickCheckQuestions, practiceExercises } from './lessonProgress';
+import { LessonPosition, LessonShape, positionRecord, resumePosition } from './lessonResume';
 import { navigate } from './router';
 import { Page } from './Shell';
 import { useAppSession } from './useAppSession';
@@ -19,9 +20,13 @@ const num = {
   min: (a: number, b: number) => globalThis.Math.min(a, b),
 };
 
-type Phase = { kind: 'teach'; step: number } | { kind: 'practice'; index: number } | { kind: 'check'; index: number } | { kind: 'done' };
+type Phase = LessonPosition;
 
 const PHASES = ['Learn', 'Practise', 'Check'] as const;
+
+const SAVE_FAILED = 'Your progress could not be saved, so you are still on this step. Check storage in Settings, then tap Try again.';
+const RETRY = 'Try again';
+const RETRY_TEXT = 'Your progress could not be saved, so nothing changed on this screen. Check storage in Settings, then try again.';
 
 export function LessonPage({ lessonId }: { lessonId: string }) {
   const lesson = LESSON_BY_ID[lessonId];
@@ -49,21 +54,27 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
   const progress = masteryProgress(lesson, data.attempts, record);
   const practice = practiceExercises(lesson);
   const checks = useMemo(() => pickCheckQuestions(lesson), [lesson]);
+  const shape: LessonShape = { steps: lesson.steps.length, practice: practice.length, checks: checks.length };
   const completed = new Set(
     Object.values(data.lessonStates)
       .filter((l) => l.completed)
       .map((l) => l.lessonId),
   );
   const locked = !prerequisitesMet(lesson.id, completed) && !record && lesson.prerequisites.length > 0;
+  const status = session.state.status;
 
-  const [phase, setPhase] = useState<Phase>(() => {
-    if (record?.completed) return { kind: 'done' };
-    return { kind: 'teach', step: num.min(record?.currentStep ?? 0, lesson.steps.length - 1) };
-  });
-  /** Until the learner moves, the saved position wins — including when stored data
-   *  arrives after mount (cold load: the player renders before IndexedDB resolves). */
-  const untouched = useRef(true);
-  const [hints, setHints] = useState<Record<string, number>>(() => ({ ...(record?.hintCounts ?? {}) }));
+  /**
+   * The rendered position. `null` until the saved lesson has been applied: the screen
+   * shows the loading panel instead, because rendering a default "Step 1" while storage
+   * is still loading is how a reload used to lose the learner's real position.
+   */
+  const [position, setPosition] = useState<Phase | null>(null);
+  /**
+   * True while a move is being committed. Every control that could advance, finish or
+   * answer is disabled, so a double tap cannot queue two transitions or two attempts.
+   */
+  const [busy, setBusy] = useState(false);
+  const [hints, setHints] = useState<Record<string, number>>({});
   const [wrongNow, setWrongNow] = useState<Record<string, number>>({});
   const [checkAnswers, setCheckAnswers] = useState<Record<string, boolean>>({});
   /**
@@ -71,68 +82,128 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
    * answer taken unaided, so a helped-but-correct answer must not unlock "Finish".
    */
   const [checksCleared, setChecksCleared] = useState<Record<string, boolean>>({});
-  const [savedMsg, setSavedMsg] = useState<string | null>(null);
-  /** A finish attempt that the evidence did not support (e.g. a hint on a check). */
+  /**
+   * Pre-check rehearsal answers: a learner who is not ready for the check can rehearse a
+   * similar question first. It is kept only for this screen (it can never record an
+   * attempt or mastery evidence), which is why it was previously lost on every rerender.
+   */
+  const [rehearsal, setRehearsal] = useState<Record<string, { answer: string; at: string }>>({});
+  const rehearsalRef = useRef(rehearsal);
+  rehearsalRef.current = rehearsal;
+  const [saveError, setSaveError] = useState<string | null>(null);
+  /** A finish attempt whose write failed; only the Finish button retries this replay. */
+  const failedFinish = useRef(false);
+  /** The move that failed, replayed by "Try again" once storage works again. */
+  const failedMove = useRef<{ to: Phase; patch: Parameters<Session['progressLesson']>[1] } | null>(null);
+  /** A finish attempt the evidence did not support (e.g. a hint on a check). */
   const [checkNotProven, setCheckNotProven] = useState(false);
   const latest = useRef(session);
-  const status = session.state.status;
   latest.current = session;
   const liveRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (status === 'loading' || !untouched.current) return;
-    if (record?.completed) setPhase({ kind: 'done' });
-    else if (record && record.currentStep !== null && record.currentStep !== undefined) {
-      setPhase((p) =>
-        p.kind === 'teach' && p.step === num.min(record.currentStep, lesson.steps.length - 1)
-          ? p
-          : { kind: 'teach', step: num.min(record.currentStep, lesson.steps.length - 1) },
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, record?.completed, record?.currentStep, lesson.id]);
+  const busyNow = busy || session.pendingLessons.has(lesson.id);
+  // Handlers that outlive a render (Finish runs after an await) must read the live values,
+  // not the closure's copy: a stale guard once let "Finish" run against a lesson whose
+  // answer was still being written.
+  const busyRef = useRef(busyNow);
+  busyRef.current = busyNow;
 
-  // Persist the current step so "Continue" resumes in the right place.
+  // ---- Load → apply → ready -------------------------------------------------
+  // One hydration per lesson instance. A failure leaves `position` null, so nothing can
+  // be rendered, advanced or saved: a failed read is never treated as "no saved progress".
   useEffect(() => {
-    // Never save before storage has loaded. On a cold start the player briefly renders
-    // Step 1, and writing that would overwrite the learner's real position with the
-    // placeholder before the saved record has even been read.
-    if (status === 'loading') return;
-    // While the position is still the stored one, the load effect owns `phase`; once it
-    // has applied the record, the effect re-runs with the correct step.
-    if (untouched.current && record?.currentStep === (phase.kind === 'teach' ? phase.step : undefined)) return;
-    if (phase.kind === 'teach' && record?.currentStep !== phase.step) {
-      // Honest reporting: if the step cannot be stored, say so instead of pretending.
-      void session.progressLesson(lesson.id, { currentStep: phase.step }).then((ok) => {
-        if (!ok) setSavedMsg('Your progress could not be saved. Check storage in Settings — answers still count on this screen.');
-      });
-    }
+    if (status === 'loading' || position) return;
+    if (status === 'unavailable') return;
+    const restored = resumePosition(latest.current.state.data.lessonStates[lesson.id], shape);
+    const saved = latest.current.state.data.lessonStates[lesson.id];
+    setHints({ ...(saved?.hintCounts ?? {}) });
+    setRehearsal({ ...(saved?.checkPractice ?? {}) });
+    // Marking the screen ready is the same assignment: until `position` is set the player
+    // renders only the loader, so no save can be built from a default "Step 1" state.
+    setPosition(restored);
+    // Only the first settled render may initialise; later data changes must not yank the
+    // learner to another screen while they are working.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, lesson.id, status]);
+  }, [status, lesson.id]);
 
-  const step = phase.kind === 'teach' ? lesson.steps[phase.step] : null;
+  /**
+   * Persist a move, then show it. Nothing on screen changes until the write is confirmed.
+   *
+   * Returns a promise that settles once the move is on screen. `patch` is replanned
+   * against the freshest session data on every attempt, so a retry after another write
+   * or a cross-tab change never resurfaces a stale snapshot.
+   */
+  const commitMove = useCallback(
+    async (next: Phase | null, patch: Parameters<Session['progressLesson']>[1]): Promise<boolean> => {
+      if (busyNow) return false;
+      setBusy(true);
+      setSaveError(null);
+      failedFinish.current = false;
+      try {
+        const ok = await latest.current.progressLesson(lesson.id, patch);
+        if (!ok) {
+          setSaveError(SAVE_FAILED);
+          // The screen did not change, so "Try again" must replay the move that was
+          // refused (not re-save the screen the learner is already on).
+          if (next) failedMove.current = { to: next, patch };
+          return false;
+        }
+        failedMove.current = null;
+        if (next) setPosition(next);
+        return true;
+      } finally {
+        setBusy(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lesson.id, busyNow],
+  );
+
+  /** Patch for a destination screen, built from the current session snapshot. */
+  const patchFor = (next: Phase): Parameters<Session['progressLesson']>[1] => positionRecord(next);
+
+  const go = async (next: Phase, extra: Parameters<Session['progressLesson']>[1] = {}) => {
+    const shown = await commitMove(next, { ...patchFor(next), ...extra });
+    if (shown) requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
+    return shown;
+  };
+
+  const step = position?.kind === 'teach' ? lesson.steps[position.step] : null;
 
   const attemptCount = (exerciseId: string) => data.attempts.filter((a) => a.exerciseId === exerciseId).length + (wrongNow[exerciseId] ?? 0);
 
-  const submit = async (ex: Exercise, input: { answer: string; correct: boolean; hintsUsed: number; misconception?: string }) => {
-    const res = await session.recordAttempt({
-      exercise: ex,
-      lessonId: lesson.id,
-      answer: input.answer,
-      correct: input.correct,
-      hintsUsed: input.hintsUsed,
-      misconception: input.misconception,
-    });
-    if (!res.ok) setSavedMsg('Your progress could not be saved. Check storage in Settings — answers still count on this screen.');
-    if (input.correct) {
-      setCheckAnswers((s) => ({ ...s, [ex.id]: true }));
-      // Only an unaided correct answer clears the check (mirrors `checkPassedBy`).
-      setChecksCleared((s) => ({ ...s, [ex.id]: input.hintsUsed === 0 }));
-    } else {
-      setWrongNow((w) => ({ ...w, [ex.id]: (w[ex.id] ?? 0) + 1 }));
-      setCheckAnswers((s) => ({ ...s, [ex.id]: false }));
-      setChecksCleared((s) => ({ ...s, [ex.id]: false }));
-      // A wrong check answer revokes the check pass until it is answered correctly.
+  /** Records an answer; resolves true only once storage confirmed the attempt. */
+  const submit = async (ex: Exercise, input: { answer: string; correct: boolean; hintsUsed: number; misconception?: string }): Promise<boolean> => {
+    if (busyNow) return false;
+    setBusy(true);
+    setSaveError(null);
+    try {
+      const res = await latest.current.recordAttempt({
+        exercise: ex,
+        lessonId: lesson.id,
+        answer: input.answer,
+        correct: input.correct,
+        hintsUsed: input.hintsUsed,
+        misconception: input.misconception,
+      });
+      if (!res.ok) {
+        // Nothing was recorded, so the card must not claim the answer was accepted.
+        setSaveError(RETRY_TEXT);
+        return false;
+      }
+      if (input.correct) {
+        setCheckAnswers((s) => ({ ...s, [ex.id]: true }));
+        // Only an unaided correct answer clears the check (mirrors `checkPassedBy`).
+        setChecksCleared((s) => ({ ...s, [ex.id]: input.hintsUsed === 0 }));
+      } else {
+        setWrongNow((w) => ({ ...w, [ex.id]: (w[ex.id] ?? 0) + 1 }));
+        setCheckAnswers((s) => ({ ...s, [ex.id]: false }));
+        setChecksCleared((s) => ({ ...s, [ex.id]: false }));
+        // A wrong check answer revokes the check pass until it is answered correctly.
+      }
+      return true;
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -146,18 +217,13 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
     return checksCleared[exerciseId] === true && !helped;
   };
 
-  const go = (nextPhase: Phase) => {
-    untouched.current = false;
-    setPhase(nextPhase);
-    requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'smooth' }));
-  };
-
   // Changing phase hides a stale "not proven" message.
   useEffect(() => {
     setCheckNotProven(false);
-  }, [phase]);
+  }, [position]);
 
-  if (status === 'loading') {
+  // ---- Not ready yet --------------------------------------------------------
+  if (status === 'loading' || (status === 'ready' && !position)) {
     return (
       <Page title="Lesson">
         <div className="loading-screen" role="status">
@@ -167,39 +233,46 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
       </Page>
     );
   }
-
-  const finish = async () => {
-    // Re-read storage: the attempt just submitted must be included in the verdict.
-    await session.refresh();
-    const fresh = masteryProgress(lesson, latest.current.state.data.attempts, latest.current.state.data.lessonStates[lesson.id]);
-    if (!fresh.complete) {
-      setCheckNotProven(true);
-      return;
-    }
-    setCheckNotProven(false);
-    await session.progressLesson(lesson.id, { completed: true, currentStep: lesson.steps.length - 1 });
-    await session.passMasteryCheck(lesson.id);
-    go({ kind: 'done' });
-  };
+  if (status === 'unavailable' || !position) {
+    // Never show (or save) a default position when the saved one could not be read:
+    // the learner's real progress might be exactly what failed to load.
+    return (
+      <Page title="Lesson">
+        <div className="card stack" role="alert">
+          <h1>We could not load your saved progress</h1>
+          <p>Nothing has been changed or overwritten. Reload to try again; if it keeps happening, your browser may be blocking storage (see Settings).</p>
+          {session.state.loadError && <p className="small muted">{session.state.loadError}</p>}
+          <div className="btn-row">
+            <button type="button" className="btn" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+            <a className="btn btn-secondary" href="#/settings">
+              Open Settings
+            </a>
+          </div>
+        </div>
+      </Page>
+    );
+  }
 
   const world = WORLD_BY_ID[lesson.world];
   const teachCount = lesson.steps.length;
   const totalUnits = teachCount + practice.length + checks.length;
   const doneUnits =
-    phase.kind === 'teach'
-      ? phase.step
-      : phase.kind === 'practice'
-        ? teachCount + phase.index
-        : phase.kind === 'check'
-          ? teachCount + practice.length + phase.index
+    position.kind === 'teach'
+      ? position.step
+      : position.kind === 'practice'
+        ? teachCount + position.index
+        : position.kind === 'check'
+          ? teachCount + practice.length + position.index
           : totalUnits;
-  const phaseIndex = phase.kind === 'teach' ? 0 : phase.kind === 'practice' ? 1 : 2;
+  const phaseIndex = position.kind === 'teach' ? 0 : position.kind === 'practice' ? 1 : 2;
 
   return (
     <Page title={lesson.title}>
       {/* `data-docked-actions` tells the app shell to reserve room for the sticky lesson
           footer above the bottom navigation, so it never covers the last control. */}
-      <div className="lesson-shell" data-docked-actions={phase.kind === 'practice' || phase.kind === 'check' ? '' : undefined}>
+      <div className="lesson-shell" data-docked-actions={position.kind === 'practice' || position.kind === 'check' ? '' : undefined}>
         <header className="lesson-header">
           <nav className="breadcrumb" aria-label="Breadcrumb">
             <a href="#/learn">Learn</a>
@@ -242,21 +315,26 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               </div>
             </div>
           )}
-          {savedMsg && (
-            <div className="feedback feedback-error" role="alert">
-              {savedMsg}
+          {saveError && (
+            <div className="feedback feedback-error" role="alert" data-testid="save-error">
+              {saveError}
+              <div className="btn-row" style={{ marginTop: 8 }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => void retrySave()} disabled={busyNow} data-testid="retry-save">
+                  {RETRY}
+                </button>
+              </div>
             </div>
           )}
         </header>
 
         <div ref={liveRef} aria-live="polite" className="sr-only">
-          {phase.kind === 'done' ? 'Lesson complete' : ''}
+          {position.kind === 'done' ? 'Lesson complete' : ''}
         </div>
 
-        {phase.kind === 'teach' && step && (
-          <section className="card lesson-step" key={`s${phase.step}`}>
-            <p className="small muted mb-0">
-              Step {phase.step + 1} of {teachCount} · {step.type === 'explore' ? 'Explore' : step.type === 'check' ? 'Notice' : 'Learn'}
+        {position.kind === 'teach' && step && (
+          <section className="card lesson-step" key={`s${position.step}`}>
+            <p className="small muted mb-0" data-testid="step-indicator">
+              Step {position.step + 1} of {teachCount} · {step.type === 'explore' ? 'Explore' : step.type === 'check' ? 'Notice' : 'Learn'}
             </p>
             <h2>{step.title}</h2>
             <p className="step-body">{step.body}</p>
@@ -271,28 +349,30 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => (phase.step > 0 ? go({ kind: 'teach', step: phase.step - 1 }) : navigate('/learn'))}
+                onClick={() => (position.step > 0 ? void go({ kind: 'teach', step: position.step - 1 }) : navigate('/learn'))}
+                disabled={busyNow}
                 data-testid="prev-step"
               >
-                {phase.step > 0 ? 'Back' : 'All lessons'}
+                {position.step > 0 ? 'Back' : 'All lessons'}
               </button>
               <button
                 type="button"
                 className="btn btn-primary-next"
-                onClick={() => (phase.step < teachCount - 1 ? go({ kind: 'teach', step: phase.step + 1 }) : go({ kind: 'practice', index: 0 }))}
+                onClick={() => (position.step < teachCount - 1 ? void go({ kind: 'teach', step: position.step + 1 }) : void go({ kind: 'practice', index: 0 }))}
+                disabled={busyNow}
                 data-testid="next-step"
               >
-                {phase.step < teachCount - 1 ? 'Next step' : `Start practising (${practice.length})`}
+                {position.step < teachCount - 1 ? 'Next step' : `Start practising (${practice.length})`}
               </button>
             </div>
           </section>
         )}
 
-        {phase.kind === 'practice' && practice[phase.index] && (
-          <div className="stack" key={`p${phase.index}`}>
+        {position.kind === 'practice' && practice[position.index] && (
+          <div className="stack" key={`p${position.index}`}>
             <div className="row-between">
-              <p className="small muted mb-0">
-                Practice {phase.index + 1} of {practice.length}
+              <p className="small muted mb-0" data-testid="phase-indicator">
+                Practice {position.index + 1} of {practice.length}
               </p>
               {progress.evidenceReady && (
                 <span className="pill pill-success">
@@ -301,38 +381,47 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               )}
             </div>
             <ExerciseCard
-              key={practice[phase.index].id}
-              exercise={practice[phase.index]}
+              key={practice[position.index].id}
+              exercise={practice[position.index]}
               lesson={lesson}
-              attemptsOnExercise={attemptCount(practice[phase.index].id)}
-              hintsShown={hints[practice[phase.index].id] ?? 0}
-              conceptAttempts={data.attempts.filter((a) => a.conceptId === practice[phase.index].conceptId)}
-              mastery={data.mastery[practice[phase.index].conceptId]}
-              onSubmit={(input) => void submit(practice[phase.index], input)}
-              onHint={() => setHints((h) => ({ ...h, [practice[phase.index].id]: (h[practice[phase.index].id] ?? 0) + 1 }))}
+              attemptsOnExercise={attemptCount(practice[position.index].id)}
+              hintsShown={hints[practice[position.index].id] ?? 0}
+              conceptAttempts={data.attempts.filter((a) => a.conceptId === practice[position.index].conceptId)}
+              mastery={data.mastery[practice[position.index].conceptId]}
+              busy={busyNow}
+              onSubmit={(input) => submit(practice[position.index], input)}
+              onHint={() =>
+                void latest.current.progressLesson(lesson.id, { hintCounts: { [practice[position.index].id]: (hints[practice[position.index].id] ?? 0) + 1 } }).then((ok) => {
+                  if (ok) setHints((h) => ({ ...h, [practice[position.index].id]: (h[practice[position.index].id] ?? 0) + 1 }));
+                  else setSaveError('That hint could not be saved, so it was not shown. Try again.');
+                })
+              }
             />
             <div className="lesson-footer">
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => (phase.index > 0 ? go({ kind: 'practice', index: phase.index - 1 }) : go({ kind: 'teach', step: teachCount - 1 }))}
+                onClick={() => (position.index > 0 ? void go({ kind: 'practice', index: position.index - 1 }) : void go({ kind: 'teach', step: teachCount - 1 }))}
+                disabled={busyNow}
               >
                 Back
               </button>
               <button
                 type="button"
                 className="btn btn-primary-next"
-                onClick={() => (phase.index < practice.length - 1 ? go({ kind: 'practice', index: phase.index + 1 }) : go({ kind: 'check', index: 0 }))}
+                onClick={() => (position.index < practice.length - 1 ? void go({ kind: 'practice', index: position.index + 1 }) : void go({ kind: 'check', index: 0 }))}
+                disabled={busyNow}
                 data-testid="next-exercise"
               >
-                {phase.index < practice.length - 1 ? 'Next exercise' : 'Go to the check'}
+                {position.index < practice.length - 1 ? 'Next exercise' : 'Go to the check'}
               </button>
               {/* Full-width secondary action on its own row, so the two main buttons keep
                   their natural size instead of squeezing labels onto two lines. */}
               <button
                 type="button"
                 className="btn btn-ghost lesson-footer-wide"
-                onClick={() => (phase.index < practice.length - 1 ? go({ kind: 'practice', index: phase.index + 1 }) : go({ kind: 'check', index: 0 }))}
+                onClick={() => (position.index < practice.length - 1 ? void go({ kind: 'practice', index: position.index + 1 }) : void go({ kind: 'check', index: 0 }))}
+                disabled={busyNow}
               >
                 Skip for now
               </button>
@@ -340,18 +429,21 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
           </div>
         )}
 
-        {phase.kind === 'check' && checks.length === 0 && (
+        {position.kind === 'check' && checks.length === 0 && (
           <section className="card stack">
             <h2>Ready to finish</h2>
             <p>This lesson has no separate check — your practice answers above are the evidence.</p>
-            <button type="button" className="btn" onClick={() => void finish()}>
+            <button type="button" className="btn" onClick={() => void finishLesson()} disabled={busyNow} data-testid="finish-lesson">
               Mark lesson complete
             </button>
           </section>
         )}
 
-        {phase.kind === 'check' && checks[phase.index] && (
-          <div className="stack" key={`c${phase.index}`}>
+        {position.kind === 'check' && checks[position.index] && (
+          <div className="stack" key={`c${position.index}`}>
+            <p className="small muted mb-0" data-testid="phase-indicator">
+              Check {position.index + 1} of {checks.length}
+            </p>
             <div className="callout callout-tip" role="note">
               <div>
                 <strong>Mastery check</strong>
@@ -359,14 +451,26 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               </div>
             </div>
             <ExerciseCard
-              exercise={checks[phase.index]}
+              exercise={checks[position.index]}
               lesson={lesson}
-              attemptsOnExercise={attemptCount(checks[phase.index].id)}
+              attemptsOnExercise={attemptCount(checks[position.index].id)}
               hintsShown={0}
-              conceptAttempts={data.attempts.filter((a) => a.conceptId === checks[phase.index].conceptId)}
-              mastery={data.mastery[checks[phase.index].conceptId]}
-              onSubmit={(input) => void submit(checks[phase.index], input)}
+              conceptAttempts={data.attempts.filter((a) => a.conceptId === checks[position.index].conceptId)}
+              mastery={data.mastery[checks[position.index].conceptId]}
+              busy={busyNow}
+              onSubmit={(input) => submit(checks[position.index], input)}
               onHint={() => undefined}
+              rehearse={{
+                stored: rehearsal[checks[position.index].id],
+                suggestion: rehearsalText(checks[position.index]),
+                onAnswer: (answer) => {
+                  // Rehearsal memory only: it is session state, never an attempt or mastery
+                  // evidence, so a relieved learner cannot "prove" the idea to the engine.
+                  const next = { ...rehearsalRef.current, [checks[position.index].id]: { answer, at: new Date().toISOString() } };
+                  setRehearsal(next);
+                  void latest.current.progressLesson(lesson.id, { checkPractice: next });
+                },
+              }}
               noHints
               submitLabel="Check"
             />
@@ -376,7 +480,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 both without a hint to finish, or come back to the check later.
               </div>
             )}
-            {phase.index === checks.length - 1 && checkAnswers[checks[phase.index].id] && !checkCleared(checks[phase.index].id) && (
+            {position.index === checks.length - 1 && checkAnswers[checks[position.index].id] && !checkCleared(checks[position.index].id) && (
               <div className="feedback feedback-hint" role="status" data-testid="check-not-proven">
                 <strong role="status">Not quite proven yet.</strong> One of the check questions does not count as evidence yet. Answer
                 both correctly, without help, to finish — or come back to the check after more practice.
@@ -386,36 +490,106 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() => (phase.index > 0 ? go({ kind: 'check', index: phase.index - 1 }) : go({ kind: 'practice', index: practice.length - 1 }))}
+                onClick={() => (position.index > 0 ? void go({ kind: 'check', index: position.index - 1 }) : void go({ kind: 'practice', index: practice.length - 1 }))}
+                disabled={busyNow}
               >
                 Back
               </button>
-              {!checkAnswers[checks[phase.index].id] && (
-                <button type="button" className="btn btn-ghost" onClick={() => go({ kind: 'done' })}>
+              {!checkAnswers[checks[position.index].id] && (
+                <button type="button" className="btn btn-ghost" onClick={() => void go({ kind: 'done' })} disabled={busyNow}>
                   Try the check later
                 </button>
               )}
-              {checkAnswers[checks[phase.index].id] && checkCleared(checks[phase.index].id) && (
+              {checkAnswers[checks[position.index].id] && checkCleared(checks[position.index].id) && (
                 <button
                   type="button"
                   className="btn btn-primary-next"
-                  onClick={() => (phase.index < checks.length - 1 ? go({ kind: 'check', index: phase.index + 1 }) : void finish())}
-                  data-testid={phase.index < checks.length - 1 ? 'next-check' : 'finish-lesson'}
+                  onClick={() => (position.index < checks.length - 1 ? void go({ kind: 'check', index: position.index + 1 }) : void finishLesson())}
+                  disabled={busyNow}
+                  data-testid={position.index < checks.length - 1 ? 'next-check' : 'finish-lesson'}
                 >
-                  {phase.index < checks.length - 1 ? 'Next question' : 'Finish lesson'}
+                  {position.index < checks.length - 1 ? 'Next question' : 'Finish lesson'}
                 </button>
               )}
             </div>
           </div>
         )}
 
-        {phase.kind === 'done' && <CompletionPanel lesson={lesson} data={data} onReview={() => go({ kind: 'practice', index: 0 })} />}
+        {position.kind === 'done' && <CompletionPanel lesson={lesson} data={data} onReview={() => void go({ kind: 'practice', index: 0 })} disabled={busyNow} />}
       </div>
     </Page>
   );
+
+  /** Verify the evidence, then mark complete in one transaction, then grant mastery. */
+  async function finishLesson(): Promise<void> {
+    if (busyRef.current) return;
+    setBusy(true);
+    setSaveError(null);
+    try {
+      // Re-read storage: the attempt just submitted must be included in the verdict.
+      await latest.current.refresh();
+      const fresh = masteryProgress(lesson, latest.current.state.data.attempts, latest.current.state.data.lessonStates[lesson.id]);
+      if (!fresh.complete) {
+        setCheckNotProven(true);
+        return;
+      }
+      setCheckNotProven(false);
+      const saved = await latest.current.progressLesson(lesson.id, { completed: true, currentStep: lesson.steps.length - 1, phase: 'done', index: 0 });
+      if (!saved) {
+        failedFinish.current = true;
+        setSaveError(SAVE_FAILED);
+        return;
+      }
+      const granted = await latest.current.passMasteryCheck(lesson.id);
+      if (!granted) {
+        // The lesson itself is saved; only the mastery decision failed. Say exactly that.
+        setSaveError('Your lesson was saved. The mastery result could not be stored — Try again stores it from the answers already recorded.');
+      }
+      setPosition({ kind: 'done' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Retry the last failed save exactly once per press, using fresh session data. */
+  async function retrySave(): Promise<void> {
+    if (busyRef.current) return;
+    if (failedFinish.current) {
+      failedFinish.current = false;
+      await finishLesson();
+      return;
+    }
+    const failed = failedMove.current;
+    if (failed) {
+      // Replan the same destination from the current session snapshot, so a change made in
+      // another tab between the failure and the retry is merged rather than overwritten.
+      failedMove.current = null;
+      const shown = await go(failed.to, failed.patch);
+      if (shown) setSaveError(null);
+      return;
+    }
+    // A failed answer or hint has nothing to replay, and retrying must not write anything
+    // by itself: probing with the current position would store a record the learner never
+    // asked to change (and could overwrite a newer one from another tab). Clear the message
+    // so the learner can redo the action; that write will report again if storage still fails.
+    setSaveError(null);
+  }
 }
 
-function CompletionPanel({ lesson, data, onReview }: { lesson: Lesson; data: Session['state']['data']; onReview: () => void }) {
+/**
+ * A rehearsal prompt for a check question: the same idea with one number changed where
+ * that is possible, otherwise a generic nudge. It deliberately never reveals the answer.
+ */
+export function rehearsalText(ex: Exercise): string {
+  const n = /\d+/.exec(ex.prompt ?? '');
+  if (n) {
+    const v = Number(n[0]);
+    return `Try the same question with a different number first, e.g. instead of ${v} use ${v + 1}. Nothing you type here is graded.`;
+  }
+  return 'Try one simpler version of this question first. Nothing you type here is graded or counts as evidence.';
+}
+
+function CompletionPanel({ lesson, data, onReview, disabled }: { lesson: Lesson; data: Session['state']['data']; onReview: () => void; disabled?: boolean }) {
   const action = nextActionAfterLesson({ lesson, attempts: data.attempts, nextLessonId: nextLessonInOrder(lesson.id)?.id });
   const ws = WORLD_BY_ID[lesson.world];
   const concepts = lesson.conceptIds.map((c) => ({ id: c, m: data.mastery[c] }));
@@ -448,7 +622,7 @@ function CompletionPanel({ lesson, data, onReview }: { lesson: Lesson; data: Ses
         <a className="btn btn-secondary" href="#/learn">
           Back to the path
         </a>
-        <button type="button" className="btn btn-ghost" onClick={onReview}>
+        <button type="button" className="btn btn-ghost" onClick={onReview} disabled={disabled}>
           Practise again
         </button>
         <a className="btn btn-ghost" href="#/progress">

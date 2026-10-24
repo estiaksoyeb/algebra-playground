@@ -1,11 +1,11 @@
 # ALGEBRA PLAYGROUND — PROGRESS
 
-_Last updated: session 4 — layout fixes to the lesson action bar, then full verification
-**green**: 153 unit tests, 80/80 E2E (mobile + desktop, including the new
-`e2e/lessonLayout.spec.ts`), and the subpath build checked earlier in the session. Two serious
-bugs were found and fixed during this pass: **no lesson could ever be completed** (every mastery
-check was recorded as helped) and **offline reloads were broken** (precached assets could never be
-matched). All counts below were observed on the current source._
+_Last updated: session 5 — Remediation Batch 1 (backup integrity), then full verification
+**green**: 166 unit tests (10 files), 88/88 executed E2E (mobile + desktop, 2 viewport-conditional
+skips), clean typecheck and production build. This session fixed the two audit-confirmed backup
+merge defects: **repeated merges duplicated attempts/history/review logs** and **a failed merge could
+leave keyed records committed**. All counts below were observed on the current source; the subpath
+E2E run was last done in session 4 and has not been re-run since._
 
 ## 1. Project objective & non-negotiable requirements
 
@@ -35,7 +35,7 @@ no telemetry. Requirements the build is held to:
 - [x] Scaffold: Vite 5 + React 18 + TS, `tsconfig.app` / `tsconfig.node`, Vitest (jsdom,
   fake-indexeddb), Playwright installed.
 - [x] Math engine (`src/math`) — 27 tests.
-- [x] Persistence (`src/storage`) — 12 tests, v3 schema with 1→3 migrations.
+- [x] Persistence (`src/storage`) — 25 tests, v4 schema with 1→4 migrations, idempotent + atomic imports.
 - [x] Curriculum (`src/content`) — 7 worlds, **36 lessons**, 35 concepts, structural validator.
 - [x] Engines (`src/engine`) — grading/diagnosis, variants, mastery, review schedule, tutor.
 - [x] Mastery checks for **every** lesson (`src/content/masteryChecks.ts`, 2 distinct-variety
@@ -57,7 +57,7 @@ no telemetry. Requirements the build is held to:
 - [x] PWA: `manifest.webmanifest`, generated icons, `build/sw-plugin.ts` emits versioned `sw.js` and
   `sw-version.txt` with a hashed precache manifest.
 - [x] Unit tests for UI logic: router, lesson progress/mastery, tool-state sanitisation,
-  mastery-check content (**153 tests in 9 files**).
+  mastery-check content (**166 tests in 10 files**).
 
 ### Remaining
 - [x] Playwright config + E2E specs (lesson completion survives reload, playground save/reopen,
@@ -71,6 +71,80 @@ no telemetry. Requirements the build is held to:
 - [x] Developer documentation in `docs/` (architecture, storage, testing, maintenance, two decision
   records).
 - [x] PROGRESS.md current.
+
+### Fixed in session 6 — a reload could lose the lesson position, and a failed save still advanced
+
+The independent audit confirmed two defects in lesson persistence. Scope for this batch was limited
+to those two; nothing else was touched (see §7 for the work this deliberately left open).
+
+1. **A reload could come back to the wrong step.** Root causes, all three present:
+   - `LessonPage` initialised its phase from the record *at mount*, i.e. before IndexedDB resolved,
+     then a save effect wrote whatever it rendered. On a cold load that was the default step 1.
+   - The save effect's only guard was `status === 'loading'`, and it compared the phase to the
+     record with `untouched`/`currentStep` heuristics, so a render between "loading" and "data
+     arrived" enqueued a write of the default position. Reproduced at unit level: a delayed load
+     produced 17 writes, alternating `0,2,0,2,…`, and the database ended on `0`.
+   - Only `currentStep` (a teaching-step index) was persisted. Practice and the mastery check had no
+     stored position at all, so they always reopened on a teaching step. `answers` and `hintCounts`
+     were written to the record but never read back.
+   - A failed load was also indistinguishable from "no saved progress": the reducer set
+     `status: 'unavailable'`, and the player rendered a normal Step 1 anyway.
+2. **A progress write that failed still advanced the lesson.** `go()` set the phase synchronously and
+   then fired `progressLesson(...)` without awaiting it; `progressLesson` dispatched the new record
+   *before* `runSave`, so the in-memory state (and every other screen) claimed the new position even
+   when IndexedDB refused it. `finish()` ignored both results and moved to the completion panel, and
+   `recordAttempt` never reverted an optimistically-added attempt. Reproduced in real Chromium:
+   after faulting `lessonStates.put`, the UI showed "Step 2 of 3 · Explore" while the database held
+   no record at all.
+
+**Implementation.**
+- Lifecycle (load → apply → ready → saves permitted): the player renders a loading panel until the
+  session is ready and holds `position === null`, so no default position can be rendered or saved.
+  `position` (a `LessonPosition` in `lessonResume.ts`) is set exactly once per lesson instance, from
+  the settled data; there is no effect that writes on mount and no timeout. A `loadError` field
+  distinguishes a failed read (alert panel, no controls, no retry loop into a write) from "no saved
+  progress" (Step 1, nothing stored until the learner moves). A lesson remount is keyed by lesson id,
+  so a pending read for one lesson can never be applied to another.
+- Resume data: the record gained optional `phase` (`teach|practice|check|done`) and `index`, so the
+  exact screen comes back, plus `checkPractice` (rehearsal memory). Absent fields resume exactly as
+  before, so old records and old backups need no migration; schema stays v4. `backup.ts` now carries
+  the two new fields through export/import (unknown phases are dropped, not guessed).
+- Saves are commit-then-apply: `progressLesson` issues `repos.commitLesson(...)` (progress row,
+  completion history, review schedule, mastery introduction in **one** transaction, requested with
+  `durability: 'strict'`) and only dispatches the new state after it resolves. A rejected write
+  returns `false` and changes nothing in memory. `recordAttempt` uses `repos.commitAttempt` (attempt
+  + mastery together) and `recordReviewResult` uses `repos.commitReview`.
+- Advancement is await-then-show: `go()` awaits the save and moves the screen only on success, shows
+  a `save-error` alert with a **Try again** button on failure, and disables every advance/answer
+  control while a write is in flight (so a double click cannot skip a step or double-record an
+  answer). "Try again" replays the failed move (or the failed finish) exactly once.
+- Regression tests use a real IndexedDB (fake-indexeddb) and a narrow fault seam at the real
+  transaction boundary: `IdbRepos.testHooks.beforeCommit(kind)` runs from the last request's
+  `onsuccess` and aborts the commit, reproducing "the call succeeded, nothing was written".
+
+### Fixed in session 5 — backup merge duplicated records and could apply half an import
+
+The independent audit confirmed two defects. Both are fixed; nothing else was changed in this batch.
+
+1. **Repeated merge imported duplicate attempts, history and review logs.** Append-only stores were
+   re-appended on every import and had no identity that survived JSON. Fix: every attempt, history
+   entry and review log carries a `uid` (minted at creation, schema v4, unique index, old rows
+   backfilled in the upgrade). A merge import skips rows whose uid is already stored, so importing a
+   backup twice is a no-op (apart from the deliberate import-audit event). Older backups without uids
+   get a deterministic content-derived uid, so the same old file also dedupes when imported twice,
+   while byte-identical rows *inside* one file keep separate identities.
+2. **A failed merge could leave keyed records committed.** The merge did `putX` calls and then a
+   separate `appendAll`, each its own transaction. Fix: `Repos.mergeAll(plan)` writes profile,
+   lesson states, mastery, experiments, reviews, attempts, history, review logs **and** the audit row
+   in one transaction, issuing every request synchronously after the uid lookups complete. A failure
+   aborts everything, `applyBackup` rejects, and Settings reports "Nothing was imported" without
+   refreshing (the in-memory state was never mutated).
+
+While doing this, two latent bugs in the shared transaction plumbing were fixed: `done()`'s handlers
+could be silently replaced (a failed transaction then hung forever instead of rejecting), and
+`repairSchema` never created a missing index on an already-existing store. The migration was also
+verified in real Chromium (an in-line-key store must use `cursor.update`, not `put(value, key)`,
+which throws `DataError`).
 
 ### Fixed in session 4 — lessons could never be completed; offline reloads never worked
 
@@ -153,15 +227,28 @@ are hidden unless the draft matches the model.
   possibly-zero), `solveLinear` with steps.
 - No `eval`/`Function` anywhere in `src/` (grep-verified).
 
-### Persistence — `npx vitest run src/storage` → 12 passed
-- `db.ts` DB `algebra-playground` v3: profile, lessonStates, attempts, mastery, experiments, history,
+### Persistence — `npx vitest run src/storage` → 25 passed
+- `db.ts` DB `algebra-playground` v4: profile, lessonStates, attempts, mastery, experiments, history,
   review, reviewLog, meta; additive migrations, defensive repair, typed errors, blocked handling.
-- `repositories.ts` typed repos; writes await transaction completion; `replaceAll`/`appendAll` queue
-  requests synchronously.
+  v4 adds a **unique `uid` index** on attempts/history/reviewLog and backfills `uid` on existing rows
+  (`cursor.update` inside the versionchange transaction, so every historical row keeps its primary
+  key and only gains a field).
+- `repositories.ts` typed repos: repairs every missing index on existing stores, writes await
+  transaction completion (`done()` uses `addEventListener`, so a later `onerror` assignment can never
+  discard the rejection). `replaceAll` clears+writes in one transaction. **`mergeAll(plan)`** is the
+  merge import: one read-write transaction over all eight stores, `uid` membership lookups for every
+  append row, then the writes — issued only after *all* lookups finish, so the transaction cannot go
+  inactive. Any failure aborts the whole transaction.
 - `backup.ts` format `algebra-playground-backup` v1: per-field sanitisation and caps, rejects foreign
-  and newer files, merge (newest wins) or replace in a single transaction.
-- Tests cover: fresh init, reopen (restart), quota error surfaced, v1→v3 migration keeps data,
-  JSON round-trip, malformed/foreign rejection, sanitisation, merge newest-wins, replace clears.
+  and newer files; merge keeps newest-wins for keyed records; append-only stores are deduplicated by
+  `uid`; the import-audit history row is part of the same transaction. Backups without uids get a
+  deterministic **legacy uid** derived from every field of the record plus its occurrence number in
+  the file (identical re-imports dedupe; identical rows within one file stay distinct).
+- Tests cover: fresh init, reopen (restart), quota error surfaced, v1→v4 migration keeps data,
+  JSON round-trip, malformed/foreign rejection, sanitisation, merge newest-wins, replace clears, plus
+  `backupIntegrity.test.ts` (13 tests): repeated merge, overlapping/distinct merge, same-answer
+  attempts stay distinct, export→import→export→import, legacy backups, duplicate uids in one file,
+  stable statistics, injected transaction failure leaves every store unchanged, recovery, replace.
 
 ### Curriculum — `npx vitest run src/content` → 13 passed
 - `types.ts`, `concepts.ts`, `lessons/world1..7.ts` (36 lessons: 7/6/3/5/4/5/6), `curriculum.ts`
@@ -206,8 +293,26 @@ are hidden unless the draft matches the model.
   curriculum test attaches it via `withMasteryChecks`. If the runtime ever needs checks in
   `CURRICULUM`, merge them in `curriculum.ts` and delete that helper.
 - `prompt`-only check questions without `math` still render fine; KaTeX is a separate 258 kB chunk.
-- Mastery checks offer no hints by design (see `docs/decisions/mastery-checks.md`): a learner who is
-  stuck leaves the check with "Try the check later" and practises instead.
+- Mastery checks offer no hints by design (see `docs/decisions/mastery-checks.md`): a learner who
+  is stuck leaves the check with "Try the check later" and practises instead.
+- Backup identity: rows written before v4, or inside a backup exported before uids existed, get a
+  content-derived legacy uid. Two *separate* legacy backups that contain byte-identical records (same
+  answer, same millisecond, same attempt number) are indistinguishable and will be merged as one.
+  Current-version exports are unaffected: they carry a real uid per record.
+- A merge import opens one transaction across all eight stores; a concurrent lesson save that lands
+  in the middle of a large import waits for it (milliseconds in practice) instead of interleaving.
+- Lesson advancement and completion are atomic (`commitLesson`), and so are attempt+mastery and
+  review+log+mastery+history. *Sequences* of operations are not: "finish lesson" then "grant mastery"
+  are two transactions, so a failure between them leaves the lesson complete with mastery ungranted.
+  The UI says so, and "Try again" re-grants from the stored attempts — but a learner who ignores the
+  message and navigates away keeps the ungranted state until they finish another lesson on the concept.
+  The cross-tab render loop (§7) is the other place where two writers are not coordinated.
+- `durability: 'strict'` is requested for lesson writes. It is a hint: a browser may ignore it, and it
+  protects against OS/browser crashes, not against a power cut after the browser reported success.
+- A failed *load* currently offers "Reload" only; there is no in-place retry button.
+- The exact browser-level reload defect (position shown ≠ position stored) is timing-dependent: it
+  reproduced once against the pre-fix build and not on a repeat run. The deterministic proof is the
+  unit/widget suite, which fails 13/23 on the pre-fix source (see §8).
 
 ## 5. Architecture
 
@@ -244,23 +349,58 @@ return a new state or an error; UI depends on math/storage/engine but never the 
 
 ## 7. Next three tasks
 
-1. **Commit the initial tree.** The repository has no commits yet; everything is untracked. Make the
-   first commit so future changes are reviewable and the Pages workflow has a baseline.
-2. **Content review pass:** read worlds 1–7 as a beginner would, checking that each lesson's first
-   step needs no prior knowledge and that the tutor's hints never give away the answer outright.
-3. **Deploy and smoke-test on GitHub Pages:** push, let `deploy.yml` publish under the repository
-   subpath, then install the PWA on a real Android phone, finish a lesson offline, and confirm the
-   progress survives a reload.
+Batches 1 and 2 are complete but **uncommitted** (staged/working tree); review, then commit.
 
-## 8. Test status (session 4, current source)
+1. **Investigate the cross-tab lesson render loop** (reported by the audit, not yet reproduced): two
+   tabs on the same lesson appear to keep re-rendering each other. Measure first, then decide whether
+   a `BroadcastChannel`/`storage`-event merge is needed or the loop is a symptom of the old
+   optimistic-write path that this batch removed.
+2. **Equation-step narration:** audit the teaching steps whose `math` is read only visually; give each
+   an audible restatement (the `MathView` `label` pattern already exists) and test it with the a11y
+   checks in `e2e/`.
+3. **Decide the scope of the mastery-review and adaptive-difficulty work** before writing code:
+   the review schedule currently caps at "needs-review → establishment after 3 independent correct"
+   and difficulty never adapts, which needs a written policy decision (see `docs/decisions/`).
+
+## 8. Test status (session 6, current source)
 
 | Layer | Command | Result |
 | --- | --- | --- |
-| Types | `npx tsc -b` | clean |
-| Unit + component | `npx vitest run` | **153 passed / 9 files** |
-| E2E mobile (Pixel 5) | `npx playwright test --project=mobile` | **42 passed** |
-| E2E desktop | `npx playwright test --project=desktop` | **42 passed** |
-| E2E subpath build | `BASE_PATH=/algebra-playground/ E2E_BASE_PATH=/algebra-playground/ npx playwright test` | **76 passed** (before the session-4 layout fixes; re-run before deploy) |
+| Types | `npx tsc -b` | clean (exit 0) |
+| Lesson persistence (new) | `npx vitest run src/ui/lessonPersistence.test.tsx` | **24 passed** (exit 0); **13 of the 23 pre-existing tests failed** on the pre-fix source |
+| UI + storage targeted | `npx vitest run src/ui src/storage` | **105 passed / 7 files** (exit 0) |
+| Unit + component | `npx vitest run` | **190 passed / 11 files** (exit 0) |
+| Production build | `npx vite build` | exit 0 |
+| Lesson E2E (desktop) | `E2E_SKIP_BUILD=1 npx playwright test e2e/lesson.spec.ts --project=desktop` | **11 passed** (exit 0) |
+
+`src/ui/lessonPersistence.test.tsx` (24 tests) covers: restoration of a non-initial teaching step,
+practice and check positions; that opening a saved lesson writes nothing; a delayed load cannot be
+overwritten by a default write; a genuinely new lesson starts at step 1 and stores nothing; a failed
+load is reported as a failure and not as "no progress"; lesson switching during a pending load; a
+failed progress write neither moves the screen nor the database; a retry advances exactly once;
+double-click cannot skip a step or double-record an attempt; a failed answer save shows no verdict;
+completion is not shown when its write fails; "Try again" after a failed answer writes nothing by itself; and the `progressLesson` contract (no success before
+commit, no in-memory mutation on failure). Faults are injected through `IdbRepos.testHooks
+.beforeCommit` inside the real transaction — no repository mocking.
+
+`e2e/lesson.spec.ts` gained: exact-position reload assertions (teaching, practice, check), the
+fresh-page "continue from the path" path, and a browser-level forced save failure
+(`injectLessonSaveFailure`, aborting the transaction at `put`) verifying no advance, then a working
+retry. The pre-fix browser defect is timing-dependent and was **not** reproduced by the E2E assertion
+on a repeat run; the unit suite is the deterministic guard.
+
+| E2E (both projects) | `E2E_SKIP_BUILD=1 npx playwright test` | **96 passed, 2 skipped** (exit 0) |
+
+The two skips are the same `e2e/navigation.spec.ts` viewport-conditional pair as before. Historical,
+unchanged this session: session 5 storage tests **25 passed / 2 files** and unit **166 passed / 10
+files** were measured on the Batch 1 source and were not re-run from it.
+| E2E (both projects) | `E2E_SKIP_BUILD=1 npx playwright test` | **88 passed, 2 skipped** (exit 0) |
+| E2E subpath build | `BASE_PATH=/algebra-playground/ E2E_BASE_PATH=/algebra-playground/ npx playwright test` | not re-run this session (last full run: session 4) |
+
+The two skips are `e2e/navigation.spec.ts` viewport-conditional tests (mobile-only / desktop-only),
+not failures. `e2e/backup.spec.ts` gained "importing the same backup twice in merge mode does not
+duplicate attempts or history"; it was verified to **fail** on the pre-fix source (attempts 2 instead
+of 1) and pass on the fixed source.
 
 E2E runs against a production build served by `vite preview` on port 4179. Kill a stale preview first
 (`kill $(lsof -t -i:4179)`), otherwise `reuseExistingServer` can serve an old bundle.
