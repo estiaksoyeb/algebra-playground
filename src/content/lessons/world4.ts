@@ -61,7 +61,7 @@ export const WORLD4_LESSONS: Lesson[] = [
         id: 'w4-l1-e3',
         conceptId: 'equality',
         kind: 'numeric',
-        prompt: 'I add 4 to the left side of a true equation. What must I do to keep it balanced?',
+        prompt: 'I add 4 to the left side of a true equation. How much must I add to the right side to keep it balanced?',
         math: '\\text{left} + 4 = ?',
         answer: '4',
         solution: 'Add the same amount, 4, to the right side as well.',

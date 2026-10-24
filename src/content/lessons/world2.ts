@@ -353,7 +353,7 @@ export const WORLD2_LESSONS: Lesson[] = [
         prompt: 'Fill the missing numerator: 1/3 = ?/9',
         math: '\\frac{1}{3} = \\frac{?}{9}',
         answer: '3',
-        solution: '3 × 3 = 9, so multiply 1 by 3 too: 1/3 = 3/9.',
+        solution: '3 × 3 = 9, so multiply 1 by 3 too: 1/3 = 3/9. The blank is 3.',
         hints: ['What times 3 gives 9?', 'Do the same to the top.'],
         difficulty: 2,
         variety: 'equivalence',

@@ -73,6 +73,22 @@ export function normalizeChoice(s: string): string {
   return s.trim().toLowerCase();
 }
 
+/**
+ * The true value of the unknown in an equation exercise ("x=6"), when it has one.
+ * The misconception rules for equations need it (the learner may double it or drop a term),
+ * and it can be read straight from the authored answer, so callers never have to supply it.
+ */
+function expectedVariableValue(ex: Exercise): Rational | undefined {
+  if (ex.kind !== 'equation') return undefined;
+  const answer = parseEquationAnswer(String(Array.isArray(ex.answer) ? ex.answer[0] : ex.answer));
+  if (!answer || answer.type !== 'equation') return undefined;
+  try {
+    return evaluateExact(answer.right, {}).value;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface GradeResult {
   correct: boolean;
   /** diagnosed misconception id when the answer is wrong but recognizable */
@@ -204,15 +220,9 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
       if (w.isNegative() !== g.isNegative() && !g.abs().eq(w.abs())) {
         return { id: 'sign-error', message: 'Check your signs on every term — positive and negative signs matter.', parsed: g.toString() };
       }
-      const diff = g.sub(w);
-      if (diff.abs().eq(Rational.ONE) && w.abs().cmp(Rational.of(50)) < 0) {
-        return { id: 'off-by-one', message: `Very close: you're off by one. Re-count carefully.`, parsed: g.toString() };
-      }
-      return {
-        id: 'arithmetic',
-        message: `Not yet. Your answer ${g.toString()} differs from the correct value. Check each step's arithmetic.`,
-        parsed: g.toString(),
-      };
+      const slip = diagnoseNumericSlip(ex, g);
+      if (slip) return slip;
+      return numericDiagnosis(w, g, isCountingQuestion(ex));
     }
     return { id: 'arithmetic', message: 'That answer has a different form. Try a single number.', parsed: summarize(got) };
   }
@@ -305,13 +315,15 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
         const wv = evaluateExact(want.right, {}).value;
         const gv = evaluateExact(got.right, {}).value;
         if (wv.isNegative() && gv.eq(wv.abs())) return { id: 'sign-error', message: 'Watch the sign — the answer is negative.', parsed: gv.toString() };
-        if (ctx.variableValue) {
-          const half = ctx.variableValue.div(Rational.of(2));
-          if (gv.eq(ctx.variableValue.mul(Rational.of(2))) || gv.eq(half)) {
+        const variableValue = ctx.variableValue ?? expectedVariableValue(ex);
+        if (variableValue) {
+          const half = variableValue.div(Rational.of(2));
+          if (gv.eq(variableValue.mul(Rational.of(2))) || gv.eq(half)) {
             return { id: 'inverse-operation-error', message: 'It looks like the wrong inverse operation was used. Undo addition with subtraction, multiplication with division.', parsed: gv.toString() };
           }
-          if (gv.eq(wv.add(ctx.variableValue))) {
-            return { id: 'same-side-error', message: 'You may have changed only one side, or moved a term without changing both sides. Whatever you do to one side must be done to the other.', parsed: gv.toString() };
+          const swapped = swappedOperationValue(ex, variableValue);
+          if (swapped && gv.eq(swapped)) {
+            return { id: 'inverse-operation-error', message: 'It looks like the wrong inverse operation was used. Undo addition with subtraction, multiplication with division.', parsed: gv.toString() };
           }
         }
         return { id: 'not-solution', message: 'Check by substituting your value into the original equation — it does not make both sides equal.', parsed: gv.toString() };
@@ -335,6 +347,232 @@ function safePoly(e: Expr) {
   } catch {
     return null;
   }
+}
+
+/** Text with LaTeX and Unicode math symbols converted to the operators the parser reads. */
+function toParseable(text: string): string {
+  return text
+    .replace(/\\times|\\cdot/g, '*')
+    .replace(/\\div/g, '/')
+    .replace(/×|·/g, '*')
+    .replace(/÷/g, '/')
+    .replace(/−/g, '-');
+}
+
+/**
+ * Tokenise a bare arithmetic string into `terms` (numbers) and `ops` (+ - * /), in reading
+ * order. Negation is folded into the number that follows it; brackets make the string
+ * unreadable here (a bracketed mistake is a different slip, so we stay silent).
+ */
+function tokeniseArithmetic(text: string): { terms: string[]; ops: string[] } | null {
+  if (/[()^a-zA-Z\\{}]/.test(text)) return null;
+  const tokens: { kind: 'num' | 'op'; text: string }[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (/[0-9.]/.test(c)) {
+      let j = i;
+      while (j < text.length && /[0-9.]/.test(text[j])) j++;
+      const num = text.slice(i, j);
+      if ((num.match(/\./g) ?? []).length > 1 || num === '.') return null;
+      tokens.push({ kind: 'num', text: num });
+      i = j;
+      continue;
+    }
+    if ('+-*/'.includes(c)) {
+      tokens.push({ kind: 'op', text: c });
+      i++;
+      continue;
+    }
+    return null;
+  }
+  // Fold unary signs: "-5" is one number, and "5 - -3" is "5 - (-3)".
+  const terms: string[] = [];
+  const ops: string[] = [];
+  let pendingSign = '';
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k];
+    if (t.kind === 'op') {
+      const prev = tokens[k - 1];
+      const unary = t.text === '-' || t.text === '+' ? k === 0 || prev?.kind === 'op' : false;
+      if (unary) {
+        pendingSign = t.text === '-' ? (pendingSign === '-' ? '' : '-') : pendingSign;
+        continue;
+      }
+      if (t.text === '*' || t.text === '/') {
+        ops.push(t.text);
+        continue;
+      }
+      // A leading term can't be a binary + or -, and a trailing one is malformed.
+      if (terms.length === 0 || k === tokens.length - 1) return null;
+      terms.push(pendingSign);
+      pendingSign = '';
+      ops.push(t.text);
+      continue;
+    }
+    if (terms.length === ops.length) {
+      terms.push(pendingSign + t.text);
+      pendingSign = '';
+    } else {
+      terms[terms.length - 1] += pendingSign + t.text;
+      pendingSign = '';
+    }
+  }
+  if (tokens[tokens.length - 1]?.kind === 'op') return null;
+  if (terms.length === 0 || ops.length !== terms.length - 1) return null;
+  return { terms, ops };
+}
+
+/**
+ * `2 + 3 * 4` read left to right: fold the terms in the order they are written, applying
+ * whichever operator comes next. Null when the string has no × or ÷ (nothing to get wrong),
+ * so a plain 6 + 7 is never labelled an order-of-operations slip.
+ */
+function readLeftToRight(text: string): Rational | null {
+  const toks = tokeniseArithmetic(text);
+  if (!toks) return null;
+  if (!toks.ops.some((op) => op === '*' || op === '/')) return null;
+  let acc: Rational | null = null;
+  for (let k = 0; k < toks.terms.length; k++) {
+    const value = parseNumber(toks.terms[k]);
+    if (!value) return null;
+    if (acc === null) {
+      acc = value;
+      continue;
+    }
+    const op = toks.ops[k - 1];
+    try {
+      if (op === '*') acc = acc.mul(value);
+      else if (op === '/') {
+        if (value.isZero()) return null;
+        acc = acc.div(value);
+      } else if (op === '+') acc = acc.add(value);
+      else acc = acc.sub(value);
+    } catch {
+      return null;
+    }
+  }
+  return acc;
+}
+
+/** Parse one numeric literal, or null. */
+function parseNumber(text: string): Rational | null {
+  const cleaned = text.trim();
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+  try {
+    return Rational.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A number "off by one" is only a counting slip when the answer is a small count. A sign,
+ * an order-of-operations slip or a decimal error can land one away too, and "re-count
+ * carefully" then sends a beginner looking for the wrong thing. Callers pass `counting`
+ * when the question is genuinely about counting up or down (plain whole-number + or −).
+ */
+function numericDiagnosis(want: Rational, got: Rational, counting: boolean): Diagnosis {
+  const sameSign = want.isNegative() === got.isNegative();
+  const diff = got.sub(want);
+  if (counting && sameSign && diff.abs().eq(Rational.ONE) && want.abs().cmp(Rational.of(50)) < 0) {
+    return { id: 'off-by-one', message: `Very close: you're off by one. Re-count carefully.`, parsed: got.toString() };
+  }
+  return {
+    id: 'arithmetic',
+    message: `Not yet. Your answer ${got.toString()} differs from the correct value. Check each step's arithmetic.`,
+    parsed: got.toString(),
+  };
+}
+
+/** Value of a numeric expression, or null if it is not a bare computation. */
+function valueOf(text: string): Rational | null {
+  const parsed = tryParse(text);
+  if (!parsed.ok) return null;
+  try {
+    return evaluateExact(parsed.expr, {}).value;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Recognise the two classic numeric slips that used to be reported as "check your arithmetic":
+ * - working strictly left to right (`2 + 3 × 4 = 20`, `20 − 10 ÷ 2 = 5`), and
+ * - reading a power as multiplication (`2³` as `2 × 3`).
+ *
+ * A question with a blank, a comparison or an equation is never diagnosed this way, and neither
+ * is an answer that happens to match an unconventional reading without the question being one.
+ */
+function diagnoseNumericSlip(ex: Exercise, got: Rational): Diagnosis | null {
+  const math = (ex.math ?? '').trim();
+  if (!math) return null;
+  const plain = toParseable(math);
+  // Only a bare computation qualifies: no blanks, comparisons or "left = right" statements.
+  if (/[?<>=]/.test(plain) || plain.includes('\\text') || plain.includes('{{')) return null;
+
+  const leftToRight = readLeftToRight(plain);
+  if (leftToRight && leftToRight.eq(got)) {
+    return {
+      id: 'order-left-to-right',
+      message: 'It looks like you worked left to right. Do × and ÷ before + and −.',
+      parsed: got.toString(),
+    };
+  }
+
+  // A power written `a^2` read as `a × 2`.
+  const powerAsProduct = plain.replace(/(\d+(?:\.\d+)?)\s*\^\s*(\d+)/g, '($1*$2)');
+  if (powerAsProduct !== plain) {
+    const v = valueOf(powerAsProduct);
+    if (v && v.eq(got)) {
+      return {
+        id: 'exponent-as-multiply',
+        message: 'A power means repeated multiplication: 2³ is 2 × 2 × 2, not 2 × 3.',
+        parsed: got.toString(),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether wrong-by-one deserves "re-count carefully": true only when the question *asks for* the
+ * result of a whole-number sum or difference over 50 and the learner is one away.
+ */
+function isCountingQuestion(ex: Exercise): boolean {
+  if (!ex.math) return false;
+  const plain = (ex.math ?? '').trim();
+  if (!/^\d+\s*[+\-−]\s*\d+$/.test(plain.replace(/\s+/g, ' '))) return false;
+  const toks = tokeniseArithmetic(toParseable(plain));
+  if (!toks) return false;
+  return toks.terms.every((t) => /^\d+$/.test(t));
+}
+
+/**
+ * The answer produced by undoing `x + 4 = 10` with the *opposite* operation: 10 + 4 = 14.
+ * Only a one-step equation whose left side is the unknown with one constant ("x + 4",
+ * "x − 5") or a coefficient ("2x") qualifies; anything else returns null, so no wrong label
+ * is invented for a question this rule does not understand.
+ */
+function swappedOperationValue(ex: Exercise, solution: Rational): Rational | null {
+  const m = /^\s*([a-z])\s*([+\-*/])\s*(-?\d+)\s*=\s*(-?\d+)\s*$/.exec((ex.math ?? '').replace(/[−]/g, '-'));
+  if (!m) return null;
+  const [, , op, constantText, rightText] = m;
+  const constant = Rational.parse(constantText);
+  const right = Rational.parse(rightText);
+  // The equation must actually hold for the stored solution; otherwise stay silent.
+  if (!valueOf(`${solution.toString()} ${op} ${constantText}`)?.eq(right) && !(op === '*' && solution.mul(constant).eq(right))) {
+    return null;
+  }
+  if (op === '+') return right.add(constant);
+  if (op === '-') return right.sub(constant).sub(constant);
+  if (op === '*') return right.sub(constant);
+  if (op === '/') return right.mul(constant).mul(constant);
+  return null;
 }
 
 function summarize(a: NormalizedAnswer): string {

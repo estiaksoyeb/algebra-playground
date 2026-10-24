@@ -1,11 +1,12 @@
 # ALGEBRA PLAYGROUND — PROGRESS
 
-_Last updated: session 5 — Remediation Batch 1 (backup integrity), then full verification
-**green**: 166 unit tests (10 files), 88/88 executed E2E (mobile + desktop, 2 viewport-conditional
-skips), clean typecheck and production build. This session fixed the two audit-confirmed backup
-merge defects: **repeated merges duplicated attempts/history/review logs** and **a failed merge could
-leave keyed records committed**. All counts below were observed on the current source; the subpath
-E2E run was last done in session 4 and has not been re-run since._
+_Last updated: session 7 — Remediation Batch 5 (adaptive difficulty & curriculum quality).
+**Green, all re-run on the current source**: 206 unit tests (12 files), 96/96 executed E2E
+(mobile + desktop, 2 viewport-conditional skips), clean typecheck and production build.
+This session found and fixed **six** confirmed grading/tutor/curriculum defects (see §9), and
+decided — with evidence — **not** to wire adaptive question selection yet (see §9, "Adaptive
+selection"). Sessions 1 and 2 were committed as `05ca664`; session 7's work is uncommitted.
+Earlier counts in this file that are not marked "session 7" are historical._
 
 ## 1. Project objective & non-negotiable requirements
 
@@ -349,58 +350,101 @@ return a new state or an error; UI depends on math/storage/engine but never the 
 
 ## 7. Next three tasks
 
-Batches 1 and 2 are complete but **uncommitted** (staged/working tree); review, then commit.
+Batches 1 and 2 are committed (`05ca664`). Batch 5 (session 7) is implemented and verified but
+**uncommitted**; review, then commit.
 
 1. **Investigate the cross-tab lesson render loop** (reported by the audit, not yet reproduced): two
    tabs on the same lesson appear to keep re-rendering each other. Measure first, then decide whether
-   a `BroadcastChannel`/`storage`-event merge is needed or the loop is a symptom of the old
-   optimistic-write path that this batch removed.
-2. **Equation-step narration:** audit the teaching steps whose `math` is read only visually; give each
-   an audible restatement (the `MathView` `label` pattern already exists) and test it with the a11y
-   checks in `e2e/`.
-3. **Decide the scope of the mastery-review and adaptive-difficulty work** before writing code:
-   the review schedule currently caps at "needs-review → establishment after 3 independent correct"
-   and difficulty never adapts, which needs a written policy decision (see `docs/decisions/`).
+   a `BroadcastChannel`/`storage`-event merge is needed. *Deferred by the user; still open.*
+2. **Equation-step narration:** give each teaching step that is currently only visual an audible
+   restatement (the `MathView` `label` pattern exists). *Deferred by the user; still open.* This
+   includes the separate "`solveLinear` worked-step narration" defect, which remains **unfixed**.
+3. **Decide adaptive question selection's policy** (session 7 measured that the helpers exist but are
+   never called, and that the content has no variation templates at all). The missing decision is
+   *which flow may vary a question* — see §9. Also still open: the mastery-review policy (unchanged)
+   and partial mastery-grant recovery after a completed lesson.
 
-## 8. Test status (session 6, current source)
+## 8. Test status (session 7, current source)
+
+Every row below was **run this session on the current source**.
 
 | Layer | Command | Result |
 | --- | --- | --- |
+| Curriculum/tutor quality (new) | `npx vitest run src/engine/curriculumQuality.test.ts` | **16 passed** (exit 0); **10 of 16 failed** on the pre-fix source |
+| Engine + content | `npx vitest run src/engine src/content` | **55 passed / 3 files** (exit 0) |
+| Unit + component | `npx vitest run` | **206 passed / 12 files** (exit 0) |
 | Types | `npx tsc -b` | clean (exit 0) |
-| Lesson persistence (new) | `npx vitest run src/ui/lessonPersistence.test.tsx` | **24 passed** (exit 0); **13 of the 23 pre-existing tests failed** on the pre-fix source |
-| UI + storage targeted | `npx vitest run src/ui src/storage` | **105 passed / 7 files** (exit 0) |
-| Unit + component | `npx vitest run` | **190 passed / 11 files** (exit 0) |
 | Production build | `npx vite build` | exit 0 |
-| Lesson E2E (desktop) | `E2E_SKIP_BUILD=1 npx playwright test e2e/lesson.spec.ts --project=desktop` | **11 passed** (exit 0) |
-
-`src/ui/lessonPersistence.test.tsx` (24 tests) covers: restoration of a non-initial teaching step,
-practice and check positions; that opening a saved lesson writes nothing; a delayed load cannot be
-overwritten by a default write; a genuinely new lesson starts at step 1 and stores nothing; a failed
-load is reported as a failure and not as "no progress"; lesson switching during a pending load; a
-failed progress write neither moves the screen nor the database; a retry advances exactly once;
-double-click cannot skip a step or double-record an attempt; a failed answer save shows no verdict;
-completion is not shown when its write fails; "Try again" after a failed answer writes nothing by itself; and the `progressLesson` contract (no success before
-commit, no in-memory mutation on failure). Faults are injected through `IdbRepos.testHooks
-.beforeCommit` inside the real transaction — no repository mocking.
-
-`e2e/lesson.spec.ts` gained: exact-position reload assertions (teaching, practice, check), the
-fresh-page "continue from the path" path, and a browser-level forced save failure
-(`injectLessonSaveFailure`, aborting the transaction at `put`) verifying no advance, then a working
-retry. The pre-fix browser defect is timing-dependent and was **not** reproduced by the E2E assertion
-on a repeat run; the unit suite is the deterministic guard.
-
 | E2E (both projects) | `E2E_SKIP_BUILD=1 npx playwright test` | **96 passed, 2 skipped** (exit 0) |
 
-The two skips are the same `e2e/navigation.spec.ts` viewport-conditional pair as before. Historical,
-unchanged this session: session 5 storage tests **25 passed / 2 files** and unit **166 passed / 10
-files** were measured on the Batch 1 source and were not re-run from it.
-| E2E (both projects) | `E2E_SKIP_BUILD=1 npx playwright test` | **88 passed, 2 skipped** (exit 0) |
-| E2E subpath build | `BASE_PATH=/algebra-playground/ E2E_BASE_PATH=/algebra-playground/ npx playwright test` | not re-run this session (last full run: session 4) |
+The 2 skips are the same viewport-conditional pair in `e2e/navigation.spec.ts` (mobile-only /
+desktop-only), not failures. E2E runs against a production build served by `vite preview` on 4179;
+kill a stale preview first (`lsof -t -i:4179 | xargs -r kill`), otherwise `reuseExistingServer`
+serves an old bundle.
 
-The two skips are `e2e/navigation.spec.ts` viewport-conditional tests (mobile-only / desktop-only),
-not failures. `e2e/backup.spec.ts` gained "importing the same backup twice in merge mode does not
-duplicate attempts or history"; it was verified to **fail** on the pre-fix source (attempts 2 instead
-of 1) and pass on the fixed source.
+**Historical, not re-run this session:** session 6 lesson persistence (`lessonPersistence.test.tsx`
+24 passed, UI+storage 105 passed), session 5 storage tests (25 passed), and the subpath E2E build
+(last full run: session 4).
 
-E2E runs against a production build served by `vite preview` on port 4179. Kill a stale preview first
-(`kill $(lsof -t -i:4179)`), otherwise `reuseExistingServer` can serve an old bundle.
+## 9. Session 7 — adaptive difficulty and curriculum/tutor quality
+
+### Adaptive selection: measured, not assumed
+
+- `variantOf`, `generateArithmetic`, `seededRand`/`seededInt` (`src/engine/variants.ts`) and
+  `nextDifficulty`, `independentStreak` (`src/engine/tutor.ts`) exist and are unit-tested.
+- **No production module calls any of them.** Only their own file and test files reference them.
+- `variantOf` only varies exercises whose `math` contains a `{{placeholder}}`. A scripted check over
+  the whole curriculum found **153 exercises, 0 with a placeholder, 0 changed by `variantOf`** — the
+  function is a no-op on every question the app can show today.
+- `reviewExercises` is declared in the type but **no lesson supplies one**, so the review page's
+  "re-generate by variant" comment describes a path that never runs.
+- What *does* adapt today: hints (escalating, then a worked example), remediation (switch model,
+  prerequisite lesson), mastery state, and the spaced-review interval. Question *selection* does not.
+
+### Decision
+
+Adaptive question selection is **not** wired up this session, and no data/backup change was made.
+Reason: the only safe hook needs a policy the product has not chosen — must a *graded practice* set
+change (which affects which varieties count as mastery evidence, hence lesson completion), or may
+only an explicitly optional "more practice" sitting vary? Both are defensible, and choosing one
+silently would change what "complete" means for every existing learner. Combined with the fact that
+the content has no variation templates, wiring `variantOf` today would inject invented questions into
+authored lessons for no teaching gain. Recorded as next task 3.
+
+### Defects found and fixed (each reproduced first)
+
+1. **Equation misconceptions were never diagnosed in the app.** The rules need the unknown's value;
+   production never passed it, so every wrong equation answer was "not-solution" while lessons declare
+   specific diagnoses. The value is now read from the authored answer.
+2. **An inverse-operation slip went unlabelled.** `x + 4 = 10` answered `x = 14` (added instead of
+   subtracted) is now `inverse-operation-error`, derived from the equation's own operator.
+3. **Order-of-operations slips were reported as "check your arithmetic".** `2 + 3 × 4 = 20` and
+   `20 − 10 ÷ 2 = 5` are now `order-left-to-right`; `2³` read as `2 × 3` is `exponent-as-multiply`.
+   Bracketed questions and coincidental matches stay generic.
+4. **"Off by one — re-count carefully" fired on non-counting questions** (including balance and
+   sign questions), sending beginners to look for the wrong thing. Now only for plain whole-number
+   sums/differences.
+5. **The tutor never showed a diagnosed misconception's advice on the first mistake**, and a
+   `same-side-error` follow-up ("what did you change on the left side?") was asked under plain
+   arithmetic. Advice is now shown with the grader's sentence, follow-ups consider the question.
+6. **A second attempt on the same question still produced the generic "Not yet…"** message; it now
+   escalates as documented. The worked example also no longer puts the finished solution on line two.
+7. **Two content defects:** `w4-l1-e3` asked "What must I do…?" while only accepting the bare number
+   (reworded to ask how much to add), and `w2-l4-e2`'s solution ended on the completed fraction `3/9`
+   rather than the blank's value 3.
+
+### Regression tests added
+
+`src/engine/curriculumQuality.test.ts` (16 tests): equation diagnosis with and without context;
+precedence and exponent slips plus the "stay generic" cases; off-by-one only when counting; every
+numeric exercise rejects a wrong answer; every exercise accepts its own stored answer; a wrong answer
+is never reported correct; two-attempt escalation and the 3-mistake rule; first-mistake advice;
+generic diagnoses not dressed up as repeats; worked-example ordering; substitute-back tip only with a
+variable; balance follow-ups only on equations; hints are non-empty and not duplicated; the two
+content fixes. Faults were injected by restoring the pre-fix files, not by mocking.
+
+### Left untouched (deliberately)
+
+Cross-tab/multi-tab consistency; `solveLinear` worked-step narration and equation-step narration
+generally; mastery-review policy; partial mastery-grant recovery after a completed lesson;
+accessibility/mobile; offline/PWA; GitHub Pages config.

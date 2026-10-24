@@ -341,7 +341,7 @@ export function ExerciseCard({
             )}
             {!tutor.steps && tutor.kind === 'hint' && (
               <span className="small muted" style={{ display: 'block', marginTop: 6 }}>
-                {followUpQuestion(grade?.misconception)}
+                {followUpQuestion(grade?.misconception, { exercise: ex })}
               </span>
             )}
           </div>
