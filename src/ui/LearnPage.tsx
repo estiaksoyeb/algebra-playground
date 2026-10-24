@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { CURRICULUM, LESSON_ORDER, WORLD_BY_ID, lessonsInWorld, prerequisitesMet } from '../content/curriculum';
 import { Lesson } from '../content/types';
+import { WorldIcon } from '../components/icons';
 import { Page } from './Shell';
 import { useAppSession } from './useAppSession';
 
@@ -19,9 +20,13 @@ function LessonRow({ lesson, state, locked, current }: { lesson: Lesson; state: 
         <span className="lesson-card-body">
           <span className="lesson-card-title">{lesson.title}</span>
           <span className="lesson-card-meta">
-            {lesson.estimatedMinutes} min · {lesson.steps.length} steps · {lesson.exercises.length} exercises
-            {locked ? ' · finish the earlier lesson first (you can still open it)' : ''}
+            <span className="lesson-meta-item">{lesson.estimatedMinutes} min</span>
+            <span className="lesson-meta-item">{lesson.steps.length} steps</span>
+            <span className="lesson-meta-item">{lesson.exercises.length} exercises</span>
           </span>
+          {locked && (
+            <span className="lesson-card-note">Finish the earlier lesson first — you can still open it.</span>
+          )}
         </span>
         <span className="sr-only">{state === 'done' ? 'Completed' : locked ? 'Not ready yet' : ''}</span>
       </a>
@@ -42,10 +47,20 @@ export function LearnMapPage() {
   );
   const next = LESSON_ORDER.find((id) => !completed.has(id));
   const worlds = [...CURRICULUM.worlds].sort((a, b) => a.number - b.number);
-  // Default to the world of the next lesson. The default follows the data until the learner
-  // opens/closes a world explicitly, so a cold load (or an import) opens the right world.
-  const [chosenWorld, setOpenWorld] = useState<string | null>(null);
-  const openWorld = chosenWorld ?? (next ? CURRICULUM.lessons.find((l) => l.id === next)?.world : undefined) ?? worlds[0].id;
+  // Start with the world of the next lesson open, so a cold load (or an import) shows the right
+  // place. Every later toggle only touches the world that was clicked: expansion state is a set
+  // of stable world ids, so several worlds can stay open at once.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const suggested = (next ? CURRICULUM.lessons.find((l) => l.id === next)?.world : undefined) ?? worlds[0].id;
+    return new Set([suggested]);
+  });
+  const toggleWorld = (id: string) =>
+    setExpanded((prev) => {
+      const updated = new Set(prev);
+      if (updated.has(id)) updated.delete(id);
+      else updated.add(id);
+      return updated;
+    });
 
   return (
     <Page title="Learn">
@@ -61,39 +76,50 @@ export function LearnMapPage() {
       {worlds.map((world) => {
         const lessons = lessonsInWorld(world.id);
         const done = lessons.filter((l) => completed.has(l.id)).length;
-        const isOpen = openWorld === world.id;
+        const isOpen = expanded.has(world.id);
         return (
-          <section key={world.id} className="world" aria-labelledby={`world-${world.id}`} data-testid={`world-${world.id}`}>
+          <section
+            key={world.id}
+            className="world"
+            aria-labelledby={`world-${world.id}`}
+            data-testid={`world-${world.id}`}
+            data-expanded={isOpen || undefined}
+            style={{ ['--world-color' as string]: `var(${world.colorVar})` }}
+          >
             <div className="world-header">
-              <div className="world-badge" style={{ ['--world-color' as string]: `var(${world.colorVar})` }} aria-hidden="true">
-                {world.icon}
+              <div className="world-badge" data-testid={`world-icon-${world.id}`} aria-hidden="true">
+                <WorldIcon icon={world.icon} width={24} height={24} />
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <h2 id={`world-${world.id}`} style={{ fontSize: 'var(--fs-lg)', marginBottom: 2 }}>
-                  World {world.number}: {world.title}
+              <div className="world-heading">
+                <h2 id={`world-${world.id}`} className="world-title">
+                  <span className="world-number">World {world.number}</span>
+                  <span className="world-name">{world.title}</span>
                 </h2>
-                <p className="small muted mb-0">{world.tagline}</p>
-                <div className="row" style={{ marginTop: 6, gap: 10 }}>
-                  <div className="progress-track" style={{ flex: '1 1 120px' }} aria-hidden="true">
-                    <div style={{ width: `${(done / lessons.length) * 100}%` }} />
-                  </div>
-                  <span className="small muted">
-                    {done}/{lessons.length}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    aria-expanded={isOpen}
-                    aria-controls={`world-list-${world.id}`}
-                    onClick={() => setOpenWorld(isOpen ? '' : world.id)}
-                  >
-                    {isOpen ? 'Hide lessons' : 'Show lessons'}
-                  </button>
-                </div>
+                <p className="world-tagline">{world.tagline}</p>
+              </div>
+              <div className="world-controls">
+                <span className="world-count">
+                  {done}/{lessons.length}
+                  <span className="sr-only"> lessons complete</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm world-toggle"
+                  aria-expanded={isOpen}
+                  aria-controls={`world-list-${world.id}`}
+                  onClick={() => toggleWorld(world.id)}
+                >
+                  {isOpen ? 'Hide lessons' : 'Show lessons'}
+                </button>
+              </div>
+            </div>
+            <div className="world-progress" aria-hidden="true">
+              <div className="progress-track">
+                <div style={{ width: `${(done / lessons.length) * 100}%` }} />
               </div>
             </div>
             {isOpen ? (
-              <ul className="lesson-list" id={`world-list-${world.id}`} style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              <ul className="lesson-list" id={`world-list-${world.id}`}>
                 {lessons.map((lesson) => {
                   const isDone = completed.has(lesson.id);
                   const isCurrent = next === lesson.id;
@@ -102,7 +128,7 @@ export function LearnMapPage() {
                 })}
               </ul>
             ) : (
-              <p className="small muted mb-0">
+              <p className="world-summary">
                 {done === lessons.length ? 'All lessons complete.' : `${lessons.length - done} lesson${lessons.length - done === 1 ? '' : 's'} to go.`}{' '}
                 {WORLD_BY_ID[world.id]?.description}
               </p>

@@ -1057,23 +1057,134 @@ label.choice:has(> input[type='radio']) {
 /* ---------- Curriculum map ---------- */
 .world {
   margin-bottom: var(--sp-5);
+  /* The world's own colour, so the header, toggle and progress bar share one identity. */
+  --world-color: var(--brand);
 }
+/*
+ * Two-row grid: icon + heading + control on the first row, progress on the second.
+ * `min-width: 0` on both flexible tracks lets long titles wrap instead of forcing the
+ * row wider than the phone.
+ */
 .world-header {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-3);
-  margin-bottom: var(--sp-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'icon heading controls';
+  align-items: start;
+  column-gap: var(--sp-3);
+  row-gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
 }
 .world-badge {
+  grid-area: icon;
   width: 44px;
   height: 44px;
+  padding: var(--sp-2);
   border-radius: var(--radius-md);
   display: grid;
   place-items: center;
   background: var(--world-color, var(--brand));
   color: #fff;
-  font-weight: 800;
   flex: none;
+  overflow: hidden;
+}
+/* Icons inherit the badge's colour; a fixed box keeps every symbol the same size. */
+.world-badge > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 24px;
+  max-height: 24px;
+}
+.world-heading {
+  grid-area: heading;
+  min-width: 0;
+}
+.world-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.35em;
+  row-gap: 0;
+  margin: 0;
+  font-size: var(--fs-lg);
+  line-height: 1.25;
+  /* A long single word may break rather than overflow a narrow column. */
+  overflow-wrap: anywhere;
+}
+.world-number {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--world-color, var(--brand-strong));
+}
+.world-name {
+  min-width: 0;
+}
+.world-tagline {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+  line-height: 1.4;
+  max-width: 48ch;
+}
+.world-controls {
+  grid-area: controls;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.world-count {
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.world-toggle {
+  /* Keep the tap target comfortable and let its label wrap if the phone is very narrow. */
+  color: var(--world-color, var(--brand-strong));
+  white-space: nowrap;
+}
+.world-toggle:hover {
+  background: color-mix(in srgb, var(--world-color, var(--brand)) 12%, transparent);
+}
+.world-progress {
+  margin: 0 0 var(--sp-3);
+}
+.world-progress .progress-track > div {
+  background: var(--world-color, var(--brand));
+}
+.world-summary {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--ink-muted);
+}
+/* On phones the control drops under the title so the title gets the whole width. */
+@media (max-width: 479px) {
+  .world-header {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'icon heading'
+      'icon controls';
+    align-items: start;
+  }
+  .world-controls {
+    grid-area: controls;
+    justify-content: space-between;
+    margin-top: calc(var(--sp-1) * -1);
+  }
+  .world-progress {
+    margin-top: var(--sp-2);
+  }
+}
+.lesson-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
 }
 .lesson-card {
   display: flex;
@@ -1113,17 +1224,51 @@ label.choice:has(> input[type='radio']) {
   background: var(--brand-soft);
   color: var(--brand-strong);
 }
+/*
+ * The card body is a column so the title, the metadata row and a note each get their own
+ * line. Spans are block-level orphans from the old inline layout; forcing `display: block`
+ * keeps them from running together ("Counting & number representation6 min").
+ */
 .lesson-card-body {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .lesson-card-title {
+  display: block;
   font-weight: 650;
   line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 .lesson-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--sp-1);
+  row-gap: 2px;
   font-size: var(--fs-xs);
   color: var(--ink-muted);
+}
+/* Bullet separators drawn by CSS: they disappear for free when the row wraps. */
+.lesson-meta-item + .lesson-meta-item::before {
+  content: '·';
+  margin-right: var(--sp-1);
+  color: var(--line-strong);
+}
+.lesson-card-note {
+  display: block;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+.lesson-card {
+  padding: var(--sp-3);
+}
+.lesson-card[data-locked='true'] .lesson-card-note {
+  color: var(--ink-soft);
 }
 
 /* ---------- Tool workspace ---------- */

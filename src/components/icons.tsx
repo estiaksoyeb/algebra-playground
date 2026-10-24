@@ -80,6 +80,25 @@ export const IconBox = (p: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+/** Counting blocks: two stacked unit cubes, the model used to build number sense. */
+export const IconBlocks = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="12.5" width="8" height="8" rx="1.5" />
+    <rect x="12.5" y="3.5" width="8" height="8" rx="1.5" />
+    <path d="M6 4.5h3M5 16.5h5M14 6.5h5" opacity="0.55" />
+  </svg>
+);
+
+/** Numbers below zero and parts of a whole: a number line either side of zero. */
+export const IconPlusMinus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M2 12h20" />
+    <path d="M6.5 10.5v3M12.5 10v4M18 10.5v3" />
+    <path d="M4 6.5h5M6.5 4v5" />
+    <path d="M15 18.5h5" />
+  </svg>
+);
+
 export const IconCheck = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M4 12.5 9.5 18 20 6.5" />
@@ -226,6 +245,32 @@ export function BrandMark({ className }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * Worlds store a stable icon *identifier* (`World.icon`), never a glyph. Render it through this
+ * map so the identifier can never leak onto the screen as text; unknown values fall back to a
+ * neutral symbol instead of rendering nothing.
+ */
+export const WorldIcon = ({ icon, ...p }: { icon: string } & SVGProps<SVGSVGElement>) => {
+  switch (icon) {
+    case 'blocks':
+      return <IconBlocks {...p} />;
+    case 'plusminus':
+      return <IconPlusMinus {...p} />;
+    case 'box':
+      return <IconBox {...p} />;
+    case 'balance':
+      return <IconBalance {...p} />;
+    case 'tiles':
+      return <IconTiles {...p} />;
+    case 'graph':
+      return <IconGraph {...p} />;
+    case 'star':
+      return <IconStar {...p} />;
+    default:
+      return <IconStar {...p} />;
+  }
+};
 
 export const ToolIcon = ({ tool, ...p }: { tool: string } & SVGProps<SVGSVGElement>) => {
   switch (tool) {
