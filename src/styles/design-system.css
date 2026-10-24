@@ -81,6 +81,16 @@
 
   --tap: 44px;
   --transition: 160ms cubic-bezier(0.2, 0, 0, 1);
+
+  /*
+   * Foregrounds for *filled* buttons. `--on-brand` is the text colour that sits on a
+   * `--brand` fill: white in light mode, near-black in dark mode, because the dark brand is
+   * a pale blue. Every filled variant names its own pair here instead of inheriting a single
+   * global override, which is what previously painted dark text on outlined buttons.
+   */
+  --on-brand: #ffffff;
+  --on-danger: #ffffff;
+  --on-success: #ffffff;
 }
 
 [data-theme='dark'] {
@@ -108,6 +118,11 @@
   --tile-x-neg: #e08aa8;
   --tile-u-pos: #e0c257;
   --tile-u-neg: #b9a85a;
+
+  /* Pale fills need dark text; the light-mode white would be unreadable on them. */
+  --on-brand: #0d1218;
+  --on-danger: #0d1218;
+  --on-success: #0d1218;
 }
 
 * {
@@ -429,7 +444,7 @@ textarea {
   border-radius: var(--radius-pill);
   border: 1px solid transparent;
   background: var(--brand);
-  color: #fff;
+  color: var(--on-brand);
   font-weight: 650;
   font-size: var(--fs-md);
   cursor: pointer;
@@ -438,21 +453,19 @@ textarea {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
-[data-theme='dark'] .btn {
-  color: #0d1218;
-}
 .btn:active {
   transform: scale(0.98);
-}
-.btn:disabled,
-.btn[aria-disabled='true'] {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .btn-secondary {
   background: var(--bg-elevated);
   color: var(--ink);
   border-color: var(--line-strong);
+}
+.btn-secondary:disabled,
+.btn-secondary[aria-disabled='true'] {
+  background: var(--bg-sunken);
+  border-color: var(--line);
+  color: var(--ink-muted);
 }
 .btn-ghost {
   background: transparent;
@@ -463,13 +476,17 @@ textarea {
 .btn-ghost:hover {
   background: var(--brand-soft);
 }
+/* Outlined and ghost buttons get a visible hover wash of their own in dark mode too. */
+.btn-secondary:hover {
+  border-color: var(--brand);
+}
 .btn-danger {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
 }
 .btn-success {
   background: var(--success);
-  color: #fff;
+  color: var(--on-success);
 }
 .btn-sm {
   /* Small buttons stay full touch targets: visual size shrinks, the tap area does not. */
@@ -477,14 +494,51 @@ textarea {
   padding: 8px 14px;
   font-size: var(--fs-sm);
 }
+/*
+ * Square icon control (settings, theme toggle). The glyph must stay legible on the raised
+ * surface, so the colour is the full-strength ink and the icon is boxed in a fixed grid
+ * rather than relying on inline baseline alignment for a 24px SVG in a 44px pill.
+ */
 .btn-icon {
   width: var(--tap);
+  height: var(--tap);
   min-height: var(--tap);
+  flex: none;
+  display: inline-grid;
+  place-items: center;
   padding: 0;
   border-radius: var(--radius-pill);
   background: var(--bg-elevated);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   color: var(--ink);
+}
+.btn-icon > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+/*
+ * Disabled last, so it wins over every filled and outlined variant below. Dim the fill and
+ * the border but keep the label readable: a single `opacity` on the whole button also faded
+ * the text, which made disabled controls the least legible thing on screen.
+ */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 1;
+  /* `--ink-soft`, not `--ink-muted`: muted drops to ~4.1:1 on the sunken fill in light mode,
+     under AA for small text. Soft keeps ~6:1 in both themes and still reads as inactive,
+     because the fill and border do the "disabled" signalling. */
+  background: var(--bg-sunken);
+  border-color: var(--line);
+  color: var(--ink-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+/* Ghost buttons are transparent anyway; keep them so, and only mute the label. */
+.btn-ghost:disabled,
+.btn-ghost[aria-disabled='true'] {
+  background: transparent;
+  border-color: transparent;
 }
 .btn-block {
   width: 100%;
@@ -901,7 +955,9 @@ input[type='range']::-moz-range-thumb {
     right: 0;
     bottom: 0;
     margin: 0;
-    padding: var(--sp-3) var(--sp-4) calc(var(--sp-4) + var(--safe-bottom));
+    /* A little more room than the old 16px so the two buttons are not visually wedged in. */
+    padding: var(--sp-3) var(--sp-4) calc(var(--sp-5) + var(--safe-bottom));
+    row-gap: var(--sp-3);
     border-radius: 0;
     border-top: 1px solid var(--line);
     box-shadow: 0 -12px 24px -18px rgb(15 23 32 / 0.55);
@@ -1292,8 +1348,59 @@ label.choice:has(> input[type='radio']) {
   background: var(--bg-elevated);
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  padding: var(--sp-3);
+  /* Breathing room around the drawing so marks never sit on the border. */
+  padding: var(--sp-4);
   overflow: hidden;
+}
+@media (max-width: 479px) {
+  .tool-canvas {
+    padding: var(--sp-3);
+  }
+}
+/* The tool page's own column: heading, equation, canvas and controls each get a clear gap. */
+.tool-layout > .stack {
+  gap: var(--sp-4);
+}
+
+/*
+ * The inline tool used inside lessons. Before this it had no rule at all, so its heading,
+ * canvas, action bar and "Try it here" line were flush against the surrounding card text.
+ */
+.embedded-tool {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-block: var(--sp-2);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+/*
+ * Separates the canvas from the actions with space, not a rule: a full-width border here
+ * landed directly on top of the "Try it here" panel and read as a stray seam.
+ */
+.embedded-tool-bar {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+.embedded-tool-bar .btn-row {
+  gap: var(--sp-2);
+}
+/* "Try it here": give the sentence its own quiet panel instead of a bare line. */
+.embedded-tool-note {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--bg-sunken);
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+/* The tip/why callout that closes a step gets a clear gap from the tool above it. */
+.lesson-step > .callout,
+.lesson-step > .lesson-footer {
+  margin-top: var(--sp-4);
 }
 .tool-canvas svg {
   display: block;
@@ -1316,6 +1423,11 @@ label.choice:has(> input[type='radio']) {
   gap: var(--sp-2);
   min-height: 52px;
   box-shadow: var(--shadow-1);
+  flex-wrap: wrap;
+}
+/* The value pill wraps under the equation on very narrow screens instead of squeezing it. */
+.equation-strip .pill {
+  flex: none;
 }
 .equation-strip .katex {
   font-size: 1.15rem;
@@ -1330,9 +1442,9 @@ label.choice:has(> input[type='radio']) {
 
 .tool-tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--sp-1);
   background: var(--bg-sunken);
-  padding: 4px;
+  padding: var(--sp-1);
   border-radius: var(--radius-pill);
   overflow-x: auto;
   scrollbar-width: none;
@@ -1359,12 +1471,25 @@ label.choice:has(> input[type='radio']) {
   box-shadow: var(--shadow-1);
 }
 
+.stepper-row {
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-3);
+  min-width: 0;
+}
+.stepper-row .field-label {
+  margin: 0;
+  min-width: 0;
+  flex: 1 1 8rem;
+  overflow-wrap: anywhere;
+}
 .stepper {
   display: inline-flex;
   align-items: center;
   gap: 2px;
+  flex: none;
   border-radius: var(--radius-pill);
   border: 1px solid var(--line-strong);
+  background: var(--bg-elevated);
   overflow: hidden;
 }
 .stepper button {

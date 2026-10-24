@@ -48,7 +48,6 @@ export function NumberLinePanel({ state, onChange, onProblem, level }: PanelProp
           <button type="button" className="btn btn-secondary" onClick={() => step(1)} aria-label="Step right">
             {displayNum(state.step)} →
           </button>
-          <div style={{ width: 8 }} />
           <button type="button" className="btn btn-secondary btn-sm" onClick={() => doJump(Rational.of(-jumpAmount))} data-testid="jump-left">
             Jump −{jumpAmount}
           </button>

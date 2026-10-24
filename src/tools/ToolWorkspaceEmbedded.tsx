@@ -32,7 +32,7 @@ export function ToolWorkspaceEmbedded({ tool, initial }: { tool: ToolId; initial
           </button>
         </div>
       </div>
-      <p className="xsmall muted mb-0">
+      <p className="small muted embedded-tool-note">
         Try it here. <a href={`#/playground/${tool}`}>Open in the playground</a> to save your experiment.
       </p>
     </div>

@@ -26,10 +26,9 @@ export function Stepper({
     return n;
   };
   return (
-    <div className="row" style={{ justifyContent: 'space-between' }}>
-      <span className="field-label" style={{ margin: 0 }}>
-        {label}
-      </span>
+    // The label wraps instead of pushing the −/value/+ control off the edge of a phone.
+    <div className="row stepper-row">
+      <span className="field-label">{label}</span>
       <div className="stepper">
         <button type="button" onClick={() => onChange(clamp(value - step))} aria-label={`Decrease ${label}`}>
           −
