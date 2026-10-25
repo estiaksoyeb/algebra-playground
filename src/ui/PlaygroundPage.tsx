@@ -55,6 +55,24 @@ function ToolGlyph({ id }: { id: ToolId }) {
           <path d="M3 12h18M12 3v18" />
         </svg>
       );
+    case 'evaluator':
+      return (
+        <svg {...common}>
+          <rect x="4" y="2" width="16" height="20" rx="3" />
+          <line x1="8" y1="6" x2="16" y2="6" />
+          <line x1="8" y1="11" x2="10" y2="11" />
+          <line x1="14" y1="11" x2="16" y2="11" />
+          <line x1="8" y1="15" x2="10" y2="15" />
+          <line x1="14" y1="15" x2="16" y2="15" />
+        </svg>
+      );
+    case 'simplify':
+      return (
+        <svg {...common}>
+          <path d="M4 7h16M4 12h10M4 17h6" />
+          <path d="m16 14 3 3 3-3" />
+        </svg>
+      );
     default:
       return (
         <svg {...common}>

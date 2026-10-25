@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LESSON_ORDER, localizedConceptName, localizedLesson } from '../content/curriculum';
+import { CURRICULUM, LESSON_ORDER, localizedConceptName, localizedLesson, localizedWorld, WORLD_BY_ID } from '../content/curriculum';
 import { recommendNext } from '../engine/tutor';
 import { daysUntilDue, dueReviews } from '../engine/review';
 import { openExperiment } from './experiments';
@@ -35,7 +35,12 @@ export function HomePage() {
     [data, due, summary],
   );
   const resumeLesson = summary.lastStarted && !summary.completed.has(summary.lastStarted) ? summary.lastStarted : null;
+  const showResume = resumeLesson && (!recommendation.lessonId || recommendation.lessonId !== resumeLesson);
   const mastered = Object.values(data.mastery).filter((m) => m.state === 'established').length;
+  const activeLesson = summary.nextIncomplete ? CURRICULUM.lessons.find((l) => l.id === summary.nextIncomplete) : null;
+  const activeWorld = activeLesson && WORLD_BY_ID[activeLesson.world] ? localizedWorld(WORLD_BY_ID[activeLesson.world], lang) : null;
+  const activeWorldLessons = activeLesson ? CURRICULUM.lessons.filter((l) => l.world === activeLesson.world) : [];
+  const completedInActiveWorld = activeWorldLessons.filter((l) => summary.completed.has(l.id)).length;
 
   if (status === 'loading') {
     return (
@@ -70,7 +75,7 @@ export function HomePage() {
           <a className="btn" href={recHref} data-testid="primary-cta">
             {recommendation.title}
           </a>
-          {resumeLesson && (
+          {showResume && (
             <a className="btn btn-secondary" href={`#/learn/${resumeLesson}`}>
               {t('home.continueLesson', { title: titleOf(resumeLesson, lang) })}
             </a>
@@ -102,7 +107,18 @@ export function HomePage() {
 
       <div className="tile-grid">
         <section className="card">
-          <h2 style={{ fontSize: 'var(--fs-lg)' }}>{t('home.suggestion')}</h2>
+          <div className="row-between mb-2" style={{ gap: 'var(--sp-2)' }}>
+            <h2 style={{ fontSize: 'var(--fs-lg)', margin: 0 }}>{t('home.suggestion')}</h2>
+            {activeWorld && activeWorldLessons.length > 0 && (
+              <span className="pill pill-brand small">
+                {t('home.currentFocus', {
+                  world: activeWorld.title,
+                  done: completedInActiveWorld,
+                  total: activeWorldLessons.length,
+                })}
+              </span>
+            )}
+          </div>
           <p className="muted">{recommendation.detail}</p>
           <a className="btn btn-block" href={recHref}>
             {recommendation.title}

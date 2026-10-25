@@ -58,8 +58,9 @@ export function HelpPage() {
       </section>
 
       <div className="btn-row mt-4 small">
-        <a href="#/">{t('app.backToPlayground')}</a>
+        <a href="#/">{t('nav.home')}</a>
         <a href="#/learn">{t('nav.learn')}</a>
+        <a href="#/playground">{t('nav.playground')}</a>
         <a href="#/settings">{t('nav.settings')}</a>
       </div>
     </Page>
