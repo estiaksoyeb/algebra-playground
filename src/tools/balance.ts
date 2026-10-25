@@ -13,6 +13,7 @@ import { Rational } from '../math/rational';
 import { evaluateExact, toLatex, toPlainText } from '../math/evaluate';
 import { checkSolution, equationLatex, equationText, solveLinear, applyTransform, TransformRule } from '../math/equation';
 import { ToolModel } from './model';
+import { t } from '../i18n';
 
 export interface Pile {
   x: number;
@@ -106,21 +107,28 @@ export function solutionOf(s: BalanceState): Rational | null {
 export function applyOperation(
   s: BalanceState,
   op: { rule: TransformRule; amount: number },
+  locale?: string,
 ): { ok: boolean; state?: BalanceState; error?: string; explanation?: string } {
-  if (!Number.isInteger(op.amount)) return { ok: false, error: 'Use a whole number for the visual balance.' };
+  if (!Number.isInteger(op.amount)) {
+    return { ok: false, error: t('tool.balance.wholeNumberError', { lng: locale }) };
+  }
   if (op.rule === 'multiply' || op.rule === 'divide') {
     // Visual weight then does not correspond to piles; refuse to avoid a false picture.
-    return { ok: false, error: 'Multiplication and division change the number of x-blocks, which the pile picture cannot show honestly. Use the symbolic step instead, or try adding/subtracting — those keep the scale picture correct.' };
+    return { ok: false, error: t('tool.balance.multiplyError', { lng: locale }) };
   }
   const eq = balanceEquation(s);
   const operand = parseExpression(String(Math.abs(op.amount)));
-  if (op.rule === 'subtract' && op.amount < 0) return { ok: false, error: 'Subtract a positive amount.' };
+  if (op.rule === 'subtract' && op.amount < 0) {
+    return { ok: false, error: t('tool.balance.positiveError', { lng: locale }) };
+  }
   const result = applyTransform(eq, { rule: op.rule, operand });
-  if (!result.ok || !result.equation) return { ok: false, error: result.error ?? 'Invalid operation.' };
+  if (!result.ok || !result.equation) {
+    return { ok: false, error: result.error ?? t('tool.balance.invalidError', { lng: locale }) };
+  }
   const left = parsePileSide(result.equation.left);
   const right = parsePileSide(result.equation.right);
   if (!left || !right) {
-    return { ok: false, error: 'That operation makes the picture too complex to show with blocks.' };
+    return { ok: false, error: t('tool.balance.complexError', { lng: locale }) };
   }
   return {
     ok: true,
@@ -133,15 +141,17 @@ export function applyOperation(
         amount: op.amount,
         text:
           op.rule === 'add'
-            ? `Added ${op.amount} to both sides.`
-            : `Subtracted ${op.amount} from both sides.`,
+            ? t('tool.balance.addedBoth', { lng: locale, amount: op.amount })
+            : t('tool.balance.subtractedBoth', { lng: locale, amount: op.amount }),
       },
       revision: s.revision + 1,
     },
-    explanation:
-      op.rule === 'add'
-        ? `Adding the same weight to both pans keeps the scale level. Check: ${toPlainText(result.equation.left)} = ${toPlainText(result.equation.right)}.`
-        : `Removing the same weight from both pans keeps the scale level. Check: ${toPlainText(result.equation.left)} = ${toPlainText(result.equation.right)}.`,
+    explanation: t(op.rule === 'add' ? 'tool.balance.addedExplanation' : 'tool.balance.removedExplanation', {
+      lng: locale,
+      // Both sides are maths: they stay in the language-independent plain notation.
+      left: toPlainText(result.equation.left),
+      right: toPlainText(result.equation.right),
+    }),
   };
 }
 
@@ -161,19 +171,19 @@ export function balanceSteps(s: BalanceState): BalanceStep[] {
   return steps;
 }
 
-export function verify(s: BalanceState): { ok: boolean; text: string } | null {
+export function verify(s: BalanceState, locale?: string): { ok: boolean; text: string } | null {
   const sol = solutionOf(s);
   if (!sol) return null;
-  return nullSafeVerify(balanceEquation(s), sol);
+  return nullSafeVerify(balanceEquation(s), sol, locale);
 }
 
-function nullSafeVerify(eq: { left: Expr; right: Expr }, sol: Rational): { ok: boolean; text: string } {
+function nullSafeVerify(eq: { left: Expr; right: Expr }, sol: Rational, locale?: string): { ok: boolean; text: string } {
   const res = checkSolution(eq, 'x', sol);
   return {
     ok: res.holds,
     text: res.holds
-      ? `Check: ${toPlainText(eq.left)} = ${toPlainText(eq.right)} when x = ${sol.toString()}. ✓`
-      : `The two sides do not match for x = ${sol.toString()}.`,
+      ? t('tool.balance.verifyOk', { lng: locale, left: toPlainText(eq.left), right: toPlainText(eq.right), value: sol.toString() })
+      : t('tool.balance.verifyNo', { lng: locale, value: sol.toString() }),
   };
 }
 
@@ -193,17 +203,30 @@ export const balanceModel: ToolModel<BalanceState> = {
     const eq = balanceEquation(s);
     return { latex: equationLatex(eq), text: equationText(eq), expr: eq.left };
   },
-  describe: (s) => {
+  describe: (s, locale) => {
     const sol = solutionOf(s);
     const eq = balanceEquation(s);
+    const plural = (n: number) => (Math.abs(n) === 1 ? 'one' : 'many');
     return {
-      title: 'Balance scale',
+      title: t('tool.balance.title', { lng: locale }),
       lines: [
-        `Left side: ${s.left.x} x-block${s.left.x === 1 ? '' : 's'} and ${s.left.units} unit${Math.abs(s.left.units) === 1 ? '' : 's'}.`,
-        `Right side: ${s.right.x} x-block${s.right.x === 1 ? '' : 's'} and ${s.right.units} unit${Math.abs(s.right.units) === 1 ? '' : 's'}.`,
+        t('tool.balance.leftSide', {
+          lng: locale,
+          x: s.left.x,
+          xForm: plural(s.left.x),
+          units: s.left.units,
+          unitForm: plural(s.left.units),
+        }),
+        t('tool.balance.rightSide', {
+          lng: locale,
+          x: s.right.x,
+          xForm: plural(s.right.x),
+          units: s.right.units,
+          unitForm: plural(s.right.units),
+        }),
         sol
-          ? `The scale balances when x = ${sol.toString()}. Check: ${toLatex(eq.left)} = ${toLatex(eq.right)}.`
-          : 'This scale cannot balance: the x-blocks never match.',
+          ? t('tool.balance.balancesAt', { lng: locale, value: sol.toString(), left: toLatex(eq.left), right: toLatex(eq.right) })
+          : t('tool.balance.neverBalances', { lng: locale }),
       ],
     };
   },

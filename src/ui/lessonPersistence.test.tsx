@@ -53,9 +53,25 @@ function state(over: Partial<LessonStateRecord> = {}): LessonStateRecord {
   };
 }
 
+/**
+ * Wait until the saved position has been read and the real screen is up.
+ *
+ * The loader is waited on by its element, not by its copy: the loader text is translated
+ * now, so matching English copy passes the instant the first render happens and returns
+ * while the read is still resolving. Polling happens outside `act` (React applies its own
+ * work lazily, so holding the macrotask queue inside `act` would starve the read), then one
+ * `act` flush lands the post-hydration render that carries the translated labels.
+ */
+async function settleLesson() {
+  await waitFor(() => expect(document.querySelector('.lesson-shell')).not.toBeNull(), { timeout: 3000 });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 async function renderLesson(id = LESSON.id) {
   const view = render(<LessonPage lessonId={id} />);
-  await waitFor(() => expect(screen.queryByText(/Loading your lesson/i)).not.toBeInTheDocument());
+  await settleLesson();
   return view;
 }
 
@@ -70,7 +86,7 @@ function visibleStepText(): string {
     for (const p of scope.querySelectorAll('p')) {
       const text = p.textContent?.replace(/\s+/g, ' ').trim() ?? '';
       const
-        m = /^(Step \d+ of \d+ · \w+|Practice \d+ of \d+|Check \d+ of \d+)$/.exec(text);
+        m = /^(Step \d+ of \d+ · \w+|Question \d+ of \d+)$/.exec(text);
       if (m) return m[1];
     }
   }
@@ -80,8 +96,10 @@ function visibleStepText(): string {
 
 function describePosition(p: LessonPosition): string {
   if (p.kind === 'teach') return `Step ${p.step + 1} of ${SHAPE.steps} · ${LESSON.steps[p.step].type === 'explore' ? 'Explore' : LESSON.steps[p.step].type === 'check' ? 'Notice' : 'Learn'}`;
-  if (p.kind === 'practice') return `Practice ${p.index + 1} of ${SHAPE.practice}`;
-  if (p.kind === 'check') return `Check ${p.index + 1} of ${SHAPE.checks}`;
+  // Practise and check share one "Question X of Y" label; the phase pill above it says
+  // which one is active, so the counter no longer repeats the phase name.
+  if (p.kind === 'practice') return `Question ${p.index + 1} of ${SHAPE.practice}`;
+  if (p.kind === 'check') return `Question ${p.index + 1} of ${SHAPE.checks}`;
   return 'Lesson complete';
 }
 
@@ -187,10 +205,10 @@ describe('restoring a saved lesson position (defect A)', () => {
     });
     render(<LessonPage lessonId={LESSON.id} />);
     // While the read is pending the player must show the loader, never "Step 1".
-    expect(screen.getByText(/Loading your lesson/i)).toBeInTheDocument();
+    expect(document.querySelector('.loading-screen')).toBeInTheDocument();
     expect(screen.queryByTestId('step-indicator')).not.toBeInTheDocument();
     release();
-    await waitFor(() => expect(screen.queryByText(/Loading your lesson/i)).not.toBeInTheDocument());
+    await settleLesson();
     expect(visibleStepText()).toMatch(/^Step 3 of/);
     expect((await repos.getLessonState(LESSON.id))?.currentStep).toBe(2);
   });
@@ -219,7 +237,7 @@ describe('restoring a saved lesson position (defect A)', () => {
     const view = render(<LessonPage lessonId={LESSON.id} />);
     // Navigating before the read resolves remounts for the other lesson (keyed by id).
     view.rerender(<LessonPage lessonId={other.id} />);
-    await waitFor(() => expect(screen.queryByText(/Loading your lesson/i)).not.toBeInTheDocument());
+    await settleLesson();
     expect(screen.getByText(/Place value/i)).toBeInTheDocument();
     // The first lesson never gained a record from the abandoned render.
     expect(await repos.getLessonState(LESSON.id)).toBeUndefined();

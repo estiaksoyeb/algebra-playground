@@ -2,10 +2,13 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { applyTheme, storedTheme } from './ui/useAppSession';
+// Boot i18n before React so the very first paint is already in the stored language.
+import { bootstrapLanguage } from './i18n';
 import './styles/design-system.css';
 
 // Apply the stored theme before the first paint to avoid a flash.
 applyTheme(storedTheme());
+bootstrapLanguage();
 
 const rootEl = document.getElementById('root');
 if (!rootEl) throw new Error('Root element missing');

@@ -1,9 +1,11 @@
 import { useState } from 'react';
-import { AreaMode, AreaState, compareExpressions, createArea, deriveAreaState } from '../expressions';
+import { AreaState, compareExpressions, createArea, deriveAreaState } from '../expressions';
 import { AreaView } from '../views/AreaView';
 import { ToolControls, ToolHeader } from './shared';
 import { MathView as Math } from '../../components/MathComp';
 import { tryParse } from '../../math/expression';
+import { useTranslation } from 'react-i18next';
+import { normalizeMathInput } from '../../i18n/normalizeMathInput';
 
 export interface AreaPanelProps {
   /** Heading level for the panel title: 2 when embedded under a lesson h1. */
@@ -14,22 +16,15 @@ export interface AreaPanelProps {
   embedded?: boolean;
 }
 
-const MODE_COPY: Record<AreaMode, { title: string; description: string }> = {
-  distribute: {
-    title: 'Area model: a(b + c)',
-    description: 'One side is a single factor. Split the other side into b and c, and the rectangle splits into two parts — one product each.',
-  },
-  binomial: {
-    title: 'Area model: two factors',
-    description: 'Split each side into parts and the rectangle splits into four — each cell is one product.',
-  },
-};
-
 /** Rectangle models for distribution (a(b + c)) and binomial products (p + q)(r + s). */
 export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) {
+  const { t, i18n } = useTranslation();
   const [compare, setCompare] = useState('');
   const derived = deriveAreaState(state);
-  const copy = MODE_COPY[state.mode];
+  const copy = {
+    title: t(`tool.area.mode.${state.mode}.title`),
+    description: t(`tool.area.mode.${state.mode}.description`),
+  };
 
   const field = (key: 'a' | 'b' | 'c', label: string) => {
     const id = `area-${key}`;
@@ -47,7 +42,7 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
           autoCapitalize="off"
           autoComplete="off"
           aria-invalid={parsed.ok ? undefined : true}
-          onChange={(e) => onChange({ ...state, [key]: e.target.value })}
+          onChange={(e) => onChange({ ...state, [key]: normalizeMathInput(e.target.value) })}
           data-testid={`area-input-${key}`}
         />
       </div>
@@ -60,14 +55,14 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
       ? `\\left(${state.a}\\right)\\left(${state.b}\\right) = ${derived.total.latex || '?'}`
       : `${state.a}\\left(${state.b} + ${state.c}\\right) = ${derived.total.latex || '?'}`;
 
-  const verdict = compare.trim() ? compareExpressions(derived.total.text, compare) : null;
+  const verdict = compare.trim() ? compareExpressions(derived.total.text, compare, i18n.language) : null;
 
   return (
     <div className="stack">
       <ToolHeader level={level} title={copy.title} description={copy.description} />
       {/* The lesson step fixes the model; only the Playground offers both kinds. */}
       {!embedded && (
-        <div className="tool-tabs" role="tablist" aria-label="Area model type">
+        <div className="tool-tabs" role="tablist" aria-label={t('tool.area.typeLabel')}>
           <button
             type="button"
             role="tab"
@@ -88,7 +83,7 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
       )}
       <div className="equation-strip" aria-live="polite">
         <div className="stack-sm" style={{ gap: 0, minWidth: 0, flex: 1 }}>
-          <span className="equation-strip-label">{state.mode === 'binomial' ? 'Product' : 'Total area'}</span>
+          <span className="equation-strip-label">{state.mode === 'binomial' ? t('tool.product') : t('tool.totalArea')}</span>
           <div className="math-display" style={{ padding: 0 }}>
             <Math tex={strip} label={derived.total.text || 'unknown'} />
           </div>
@@ -100,14 +95,14 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
       <ToolControls>
         {state.mode === 'binomial' ? (
           <div className="tile-grid" style={{ gap: 'var(--sp-3)' }}>
-            {field('a', 'First factor (p + q)')}
-            {field('b', 'Second factor (r + s)')}
+            {field('a', t('tool.area.firstFactor'))}
+            {field('b', t('tool.area.secondFactor'))}
           </div>
         ) : (
           <div className="tile-grid" style={{ gap: 'var(--sp-3)' }}>
-            {field('a', 'Outside factor a')}
-            {field('b', 'First term inside b')}
-            {field('c', 'Second term inside c')}
+            {field('a', t('tool.area.outsideFactor'))}
+            {field('b', t('tool.area.firstTerm'))}
+            {field('c', t('tool.area.secondTerm'))}
           </div>
         )}
         {!embedded && (
@@ -117,25 +112,25 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
               className="btn btn-secondary btn-sm"
               onClick={() => onChange(createArea({ mode: 'binomial', a: 'x + 1', b: 'x + 2' }))}
             >
-              Example: (x + 1)(x + 2)
+              {t('tool.area.exampleBinomial')}
             </button>
             <button
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => onChange(createArea({ mode: 'distribute', a: '3', b: 'x', c: '2' }))}
             >
-              Example: 3(x + 2)
+              {t('tool.area.exampleDistribute')}
             </button>
             {state.mode === 'binomial' && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => onChange({ ...state, a: 'x - 1' })}>
-                Try a minus: x − 1
+                {t('tool.area.tryMinus')}
               </button>
             )}
           </div>
         )}
         {derived.ok && (
           <div className="feedback feedback-info" role="status" data-testid="area-total">
-            {state.mode === 'binomial' ? 'Add the four cell areas' : 'Add the two cell areas'}: {derived.cells.map((c) => c.product).join(' + ')} ={' '}
+            {state.mode === 'binomial' ? t('tool.area.addFour') : t('tool.area.addTwo')}: {derived.cells.map((c) => c.product).join(' + ')} ={' '}
             <strong>{derived.total.text}</strong>.
           </div>
         )}
@@ -143,17 +138,17 @@ export function AreaPanel({ state, onChange, level, embedded }: AreaPanelProps) 
         {state.mode === 'binomial' && !embedded && (
           <div>
             <label className="field-label" htmlFor="area-compare">
-              Check your own simplification
+              {t('tool.area.checkOwn')}
             </label>
             <input
               id="area-compare"
               className="input"
               value={compare}
-              placeholder="e.g. x^2 + 3x + 2"
+              placeholder={t('tool.area.comparePlaceholder')}
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
-              onChange={(e) => setCompare(e.target.value)}
+              onChange={(e) => setCompare(normalizeMathInput(e.target.value))}
               data-testid="area-compare-input"
             />
             {verdict && (

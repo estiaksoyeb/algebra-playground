@@ -187,7 +187,9 @@ describe('retuned number-line lesson states', () => {
 
   it('describes the reference marker button by its real label', () => {
     const state = stateFromRaw('numberline', { value: 3, min: 0, max: 10 }) as NumberLineState;
-    expect(numberLineModel.describe(state).lines.join(' ')).toContain('Tap "Mark here"');
+    // The visible button says “Mark here”; the hint must name that exact label (typographic
+    // quotes are the house style now that this copy can be translated).
+    expect(numberLineModel.describe(state).lines.join(' ')).toContain('Tap “Mark here”');
   });
 });
 

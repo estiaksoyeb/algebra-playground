@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { AreaDerived } from '../../tools/expressions';
 
 /**
@@ -6,6 +7,7 @@ import { AreaDerived } from '../../tools/expressions';
  * negative constant still gets a visible rectangle and a clear sign).
  */
 export function AreaView({ derived }: { derived: AreaDerived }) {
+  const { t } = useTranslation();
   if (!derived.ok) {
     return (
       <div className="feedback feedback-error" role="alert">
@@ -21,7 +23,7 @@ export function AreaView({ derived }: { derived: AreaDerived }) {
   const W = headerW + cols.length * cellW;
   const H = headerH + rows.length * cellH + 34;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Area model: ${derived.total.text}`} data-testid="area-svg" style={{ maxWidth: 460 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t('tool.area.modelAria', { total: derived.total.text })} data-testid="area-svg" style={{ maxWidth: 460 }}>
       {rows.map((r, ri) =>
         cols.map((c, ci) => {
           const cell = cells.find((x) => x.row === r && x.col === c);
@@ -46,7 +48,7 @@ export function AreaView({ derived }: { derived: AreaDerived }) {
         </text>
       ))}
       <text x={W / 2} y={H - 8} textAnchor="middle" style={{ fontFamily: 'var(--font-ui)', fontWeight: 700, fontSize: 13 }}>
-        total area = {derived.total.text}
+        {t('tool.area.totalArea')} = {derived.total.text}
       </text>
     </svg>
   );

@@ -5,6 +5,8 @@ import { GradeResult, gradeAnswer } from '../engine/grading';
 import { TutorContext, feedbackOnMistake, followUpQuestion, requestHint } from '../engine/tutor';
 import { AttemptRecord, MasteryRecord } from '../storage/repositories';
 import { MathView as Math } from './MathComp';
+import { useTranslation } from 'react-i18next';
+import { normalizeMathInput } from '../i18n/normalizeMathInput';
 
 export interface ExerciseProps {
   exercise: Exercise;
@@ -59,6 +61,7 @@ export function ExerciseCard({
   rehearse,
   submitLabel,
 }: ExerciseProps) {
+  const { t } = useTranslation();
   const inputId = useId();
   const [raw, setRaw] = useState('');
   const [grade, setGrade] = useState<GradeResult | null>(null);
@@ -71,7 +74,7 @@ export function ExerciseCard({
   const [revealed, setRevealed] = useState(0);
   /** Hints are always free. A hint on the check records "helped": answered with
    * help it still teaches, but it does not prove the idea stuck. */
-  const freeHints = submitLabel !== 'Check';
+  const freeHints = submitLabel !== t('tool.check');
   const [pending, setPending] = useState(false);
   const [rehearsing, setRehearsing] = useState(false);
   const [rehearsalRaw, setRehearsalRaw] = useState('');
@@ -154,15 +157,34 @@ export function ExerciseCard({
 
   const hintButtonLabel = freeHints
     ? revealed === 0
-      ? 'Show a hint'
+      ? t('exercise.showHint')
       : revealed < ex.hints.length
-        ? `Show hint ${revealed + 1} of ${ex.hints.length}`
-        : 'Worked example'
+        ? t('exercise.showHintN', { current: revealed + 1, total: ex.hints.length })
+        : t('exercise.workedExample')
     : hintsShown === 0
-      ? 'Hint'
-      : `Another hint (${hintsShown})`;
+      ? t('exercise.hint')
+      : t('exercise.anotherHint', { count: hintsShown });
 
-  const placeholder = ex.kind === 'equation' ? 'e.g. x = 4' : ex.kind === 'coordinate' ? 'e.g. (3, 2)' : ex.kind === 'expression' ? 'e.g. 2x + 3' : 'e.g. 7';
+  // Placeholders are examples of maths, so they stay ASCII in every language.
+  const placeholder =
+    ex.kind === 'equation'
+      ? t('exercise.placeholderEquation')
+      : ex.kind === 'coordinate'
+        ? t('exercise.placeholderCoordinate')
+        : ex.kind === 'expression'
+          ? t('exercise.placeholderExpression')
+          : t('exercise.placeholderNumeric');
+
+  const tutorHeading =
+    tutor?.kind === 'worked-example'
+      ? t('tutor.heading.workedExample')
+      : tutor?.kind === 'remediate'
+        ? t('tutor.heading.tryThisFirst')
+        : tutor?.kind === 'switch'
+          ? t('tutor.heading.switchView')
+          : tutor?.kind === 'simpler'
+            ? t('tutor.heading.simpler')
+            : t('tutor.heading.hint');
 
   return (
     <section className="exercise card" aria-labelledby={`${inputId}-prompt`} data-testid={`exercise-${ex.id}`}>
@@ -180,24 +202,29 @@ export function ExerciseCard({
       )}
       {ex.kind === 'choice' && ex.choices ? (
         <div className="choice-list" role="group" aria-labelledby={`${inputId}-prompt`}>
-          {ex.choices.map((c, i) => (
-            <button
-              key={c}
-              type="button"
-              className="choice"
-              aria-pressed={grade?.correct ? false : undefined}
-              disabled={solved || busy || pending}
-              onClick={() => submit(c)}
-              data-testid={`choice-${ex.id}-${i}`}
-            >
-              <span className="choice-key" aria-hidden="true">
-                {String.fromCharCode(65 + i)}
-              </span>
-              <span className="math-inline">
-                <Math tex={c} />
-              </span>
-            </button>
-          ))}
+          {ex.choices.map((c, i) => {
+            // Word-based options get a Bengali label; `submit(c)` still sends the canonical
+            // English option so the grader compares exactly what the curriculum declares.
+            const label = ex.choiceLabels?.[c];
+            return (
+              <button
+                key={c}
+                type="button"
+                className="choice"
+                aria-pressed={grade?.correct ? false : undefined}
+                disabled={solved || busy || pending}
+                onClick={() => submit(c)}
+                data-testid={`choice-${ex.id}-${i}`}
+              >
+                <span className="choice-key" aria-hidden="true">
+                  {String.fromCharCode(65 + i)}
+                </span>
+                <span className="math-inline">
+                  {label ? <span lang="bn">{label}</span> : <Math tex={c} />}
+                </span>
+              </button>
+            );
+          })}
         </div>
       ) : (
         <form
@@ -208,13 +235,15 @@ export function ExerciseCard({
           }}
         >
           <label className="field-label" htmlFor={inputId}>
-            Your answer
+            {t('exercise.yourAnswer')}
           </label>
           <input
             id={inputId}
             className="input answer-input"
             value={raw}
-            onChange={(e) => setRaw(e.target.value)}
+            // A Bengali keyboard types ০-৯; convert as it is typed so the box always shows
+            // the ASCII the grader reads.
+            onChange={(e) => setRaw(normalizeMathInput(e.target.value))}
             inputMode={ex.kind === 'numeric' || ex.kind === 'value-of-variable' ? 'decimal' : 'text'}
             autoCapitalize="off"
             autoComplete="off"
@@ -227,7 +256,7 @@ export function ExerciseCard({
           />
           <div className="btn-row">
             <button type="submit" className="btn" disabled={solved || busy || pending || !raw.trim()} data-testid="submit-answer">
-              {submitLabel ?? 'Check answer'}
+              {submitLabel ?? t('exercise.checkAnswer')}
             </button>
             {!noHints && (
               <button type="button" className="btn btn-secondary" onClick={hint} data-testid="hint-button" disabled={solved || busy || pending}>
@@ -248,7 +277,7 @@ export function ExerciseCard({
         <div className="stack-sm" data-testid="check-rehearsal">
           {rehearse.stored && !rehearsing && (
             <p className="small muted mb-0" data-testid="check-rehearsal-stored">
-              You practised this kind of question first: “{rehearse.stored.answer}”. Rehearsal does not count as evidence.
+              {t('exercise.rehearseStored', { answer: rehearse.stored.answer })}
             </p>
           )}
           {!rehearsing ? (
@@ -262,22 +291,22 @@ export function ExerciseCard({
               disabled={busy}
               data-testid="check-rehearse"
             >
-              Practise this kind of question first
+              {t('exercise.rehearse')}
             </button>
           ) : (
-            <div className="feedback feedback-info" role="group" aria-label="Practice this kind of question first">
-              <strong>Rehearsal (not counted)</strong>
+            <div className="feedback feedback-info" role="group" aria-label={t('exercise.rehearsalGroup')}>
+              <strong>{t('exercise.rehearsalHeading')}</strong>
               <span style={{ display: 'block' }}>
-                {rehearse.suggestion ?? 'Try one simpler version of this question first. Nothing you type here is graded.'}
+                {rehearse.suggestion ?? t('exercise.rehearsalSuggestion')}
               </span>
               <label className="field-label" htmlFor={`${inputId}-rehearsal`}>
-                Your rehearsal answer
+                {t('exercise.rehearsalAnswer')}
               </label>
               <input
                 id={`${inputId}-rehearsal`}
                 className="input"
                 value={rehearsalRaw}
-                onChange={(e) => setRehearsalRaw(e.target.value)}
+                onChange={(e) => setRehearsalRaw(normalizeMathInput(e.target.value))}
                 disabled={busy}
                 data-testid="check-rehearsal-input"
               />
@@ -292,10 +321,10 @@ export function ExerciseCard({
                   disabled={busy || !rehearsalRaw.trim()}
                   data-testid="check-rehearsal-done"
                 >
-                  Done practising
+                  {t('exercise.rehearsalDone')}
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRehearsing(false)} disabled={busy} data-testid="check-rehearsal-cancel">
-                  Close
+                  {t('exercise.rehearsalClose')}
                 </button>
               </div>
             </div>
@@ -305,7 +334,7 @@ export function ExerciseCard({
       <div ref={liveRef} tabIndex={-1} aria-live="polite" className="stack-sm">
         {grade?.correct && (
           <div className="feedback feedback-success" id={`${inputId}-feedback`} data-testid="feedback-correct" role="status">
-            <strong>Correct.</strong> {ex.solution}
+            <strong>{t('exercise.correct')}</strong> {ex.solution}
           </div>
         )}
         {revealed > 0 && (
@@ -313,8 +342,9 @@ export function ExerciseCard({
             {ex.hints.slice(0, revealed).map((h, i) => (
               <div key={i}>
                 <strong>
-                  Hint {i + 1}
-                  {ex.hints.length > 1 ? ` of ${ex.hints.length}` : ''}
+                  {ex.hints.length > 1
+                    ? t('exercise.hintNOf', { current: i + 1, total: ex.hints.length })
+                    : t('exercise.hintN', { current: i + 1 })}
                 </strong>
                 <span style={{ display: 'block' }}>{h}</span>
               </div>
@@ -323,9 +353,7 @@ export function ExerciseCard({
         )}
         {tutor && (
           <div className={`feedback ${tutor.kind === 'switch' || tutor.kind === 'simpler' ? 'feedback-hint' : tutor.kind === 'hint' ? 'feedback-info' : 'feedback-hint'}`} data-testid="tutor-feedback">
-            <strong>
-              {tutor.kind === 'worked-example' ? 'Worked example' : tutor.kind === 'remediate' ? 'Try this first' : tutor.kind === 'switch' ? 'Let’s try another view' : tutor.kind === 'simpler' ? 'A simpler approach' : 'Hint'}
-            </strong>
+            <strong>{tutorHeading}</strong>
             <span style={{ display: 'block' }}>{tutor.text}</span>
             {tutor.steps && (
               <ol className="small" style={{ margin: '8px 0 0', paddingLeft: 20 }}>
@@ -336,7 +364,7 @@ export function ExerciseCard({
             )}
             {tutor.prerequisite && (
               <a className="btn btn-secondary btn-sm mt-2" href={`#/learn/${tutor.prerequisite}`}>
-                Open the refresher lesson
+                {t('exercise.openRefresher')}
               </a>
             )}
             {!tutor.steps && tutor.kind === 'hint' && (

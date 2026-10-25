@@ -25,6 +25,7 @@ import { applyAttempt, computeScore, decideMastery, emptyMastery } from '../engi
 import { scheduleReview, scheduleAfterLesson, initialReview } from '../engine/review';
 import { Exercise } from '../content/types';
 import { LESSON_BY_ID } from '../content/curriculum';
+import { t } from '../i18n';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -211,7 +212,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
     // Attach the handler before anything can reject, so a failed open is reported once.
     const connection = reposPromise ?? storagePromise();
     connection.catch(() => {
-      dispatch({ type: 'load-failed', error: 'Storage is unavailable. Progress is not being saved.' });
+      dispatch({ type: 'load-failed', error: t('session.storageUnavailable') });
     });
     readyRef.current = (async () => {
       // Only the connection itself decides whether storage is available. A failure to
@@ -243,7 +244,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
         repos = await (reposPromise ?? storagePromise());
         reposRef.current = repos;
       } catch {
-        dispatch({ type: 'save-failed', error: 'Storage is unavailable. Progress is not being saved.' });
+        dispatch({ type: 'save-failed', error: t('session.storageUnavailable') });
         return false;
       }
     }
@@ -263,7 +264,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
       // Storage has not been read yet (or the read failed): writing now would replace the
       // learner's real saved position with whatever the screen happens to show.
       if (stateRef.current.status !== 'ready') {
-        dispatch({ type: 'save-failed', error: 'Your saved progress has not loaded yet, so nothing was changed.' });
+        dispatch({ type: 'save-failed', error: t('session.notLoadedYet') });
         return false;
       }
       const prev = stateRef.current.data.lessonStates[lessonId];
@@ -539,7 +540,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
         repos = await (reposPromise ?? storagePromise());
         reposRef.current = repos;
       } catch {
-        dispatch({ type: 'save-failed', error: 'Storage is unavailable. Progress is not being saved.' });
+        dispatch({ type: 'save-failed', error: t('session.storageUnavailable') });
         return;
       }
     }
@@ -553,7 +554,7 @@ export function useSession(reposPromise?: Promise<Repos>): SessionApi {
   const resetAll = useCallback(async () => {
     const repos = reposRef.current;
     if (!repos) {
-      dispatch({ type: 'save-failed', error: 'Storage is unavailable, so there is nothing stored to erase.' });
+      dispatch({ type: 'save-failed', error: t('session.nothingStoredToErase') });
       return;
     }
     dispatch({ type: 'saving' });

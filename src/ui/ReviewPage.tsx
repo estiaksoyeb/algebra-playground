@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Lesson } from '../content/types';
-import { LESSON_BY_ID, lessonForConcept } from '../content/curriculum';
+import { LESSON_BY_ID, lessonForConcept, localizedLesson } from '../content/curriculum';
 import { ExerciseCard } from '../components/ExerciseCard';
 import { dueReviews, isDue } from '../engine/review';
 import { navigate } from './router';
@@ -18,6 +19,7 @@ interface ReviewItem {
 
 /** Review session: due concepts first, then "needs review" concepts, then recent lessons. */
 export function ReviewPage() {
+  const { t, i18n } = useTranslation();
   const session = useAppSession();
   const { data } = session.state;
   const [index, setIndex] = useState(0);
@@ -44,15 +46,24 @@ export function ReviewPage() {
   }, [data.reviews, data.mastery]);
 
   const item = items[index];
+  // Review questions come straight from the English content; show their Bengali prose when
+  // it exists, but keep the exercise object (and its answer) that grading uses.
+  const reviewLesson = item ? localizedLesson(item.lessonId, i18n.language) : undefined;
+  const proseFor = (ex: Lesson['exercises'][number]) =>
+    reviewLesson
+      ? ([...reviewLesson.exercises, ...(reviewLesson.reviewExercises ?? []), ...(reviewLesson.masteryCheck ?? [])].find(
+          (candidate) => candidate.id === ex.id,
+        ) ?? ex)
+      : ex;
 
   if (items.length === 0) {
     return (
-      <Page title="Review">
-        <h1>Review</h1>
-        <EmptyState level={1} icon={<IconBook />} title="Nothing to review yet">
-          <p>Finish a lesson and its key ideas will come back here. Reviews get further apart each time you get them right: 1, 3, 7, 16, 35, then 75 days.</p>
+      <Page title={t('review.title')}>
+        <h1>{t('review.title')}</h1>
+        <EmptyState level={1} icon={<IconBook />} title={t('review.emptyTitle')}>
+          <p>{t('review.emptyBody')}</p>
           <a className="btn" href="#/learn">
-            Go to the learning path
+            {t('review.goToPath')}
           </a>
         </EmptyState>
       </Page>
@@ -62,34 +73,37 @@ export function ReviewPage() {
   const done = index >= items.length;
 
   return (
-    <Page title="Review">
-      <nav className="breadcrumb" aria-label="Breadcrumb">
-        <a href="#/progress">Progress</a>
+    <Page title={t('review.title')}>
+      <nav className="breadcrumb" aria-label={t('lesson.breadcrumb')}>
+        <a href="#/progress">{t('progress.title')}</a>
         <span aria-hidden="true">/</span>
-        <span>Review</span>
+        <span>{t('review.title')}</span>
       </nav>
-      <h1>Review</h1>
+      <h1>{t('review.title')}</h1>
       <p className="muted">
-        {done ? 'Review complete.' : `Question ${index + 1} of ${items.length}`} · {results.correct}/{results.total} correct so far
+        {done ? t('review.complete') : t('lesson.questionOf', { current: index + 1, total: items.length })} ·{' '}
+        {t('review.tally', { correct: results.correct, total: results.total })}
       </p>
       {!done && item && (
         <div className="stack">
           <div className="row-between">
-            <span className={`pill ${item.dueAt ? 'pill-warning' : 'pill-brand'}`}>{item.dueAt ? 'Due now' : 'Needs strengthening'}</span>
+            <span className={`pill ${item.dueAt ? 'pill-warning' : 'pill-brand'}`}>
+              {item.dueAt ? t('review.dueNow') : t('review.needsStrengthening')}
+            </span>
             <a className="small" href={`#/learn/${item.lessonId}`}>
-              Revisit lesson
+              {t('review.revisit')}
             </a>
           </div>
           {item.exercises.map((ex) => (
             <ExerciseCard
               key={`${item.conceptId}-${ex.id}`}
-              exercise={ex}
-              lesson={LESSON_BY_ID[item.lessonId]}
+              exercise={proseFor(ex)}
+              lesson={reviewLesson ?? LESSON_BY_ID[item.lessonId]}
               attemptsOnExercise={data.attempts.filter((a) => a.exerciseId === ex.id).length}
               hintsShown={0}
               conceptAttempts={data.attempts.filter((a) => a.conceptId === item.conceptId)}
               mastery={data.mastery[item.conceptId]}
-              submitLabel="Check"
+              submitLabel={t('tool.check')}
               onSubmit={async (input) => {
                 // The score only moves once the result is stored; a failed write leaves the
                 // card editable and the tally unchanged.
@@ -102,26 +116,24 @@ export function ReviewPage() {
           ))}
           <div className="lesson-footer">
             <button type="button" className="btn btn-secondary" onClick={() => navigate('/progress')}>
-              Stop for now
+              {t('review.stopForNow')}
             </button>
             <button type="button" className="btn btn-primary-next" onClick={() => setIndex((i) => i + 1)} data-testid="review-next">
-              {index + 1 < items.length ? 'Next question' : 'Finish review'}
+              {index + 1 < items.length ? t('exercise.nextQuestion') : t('review.finish')}
             </button>
           </div>
         </div>
       )}
       {done && (
         <section className="card stack">
-          <h2>Review finished</h2>
-          <p>
-            You answered {results.correct} of {results.total} correctly. Concepts you got right move to a longer interval; ones you missed return soon.
-          </p>
+          <h2>{t('review.finished')}</h2>
+          <p>{t('review.finishedBody', { correct: results.correct, total: results.total })}</p>
           <div className="btn-row">
             <a className="btn" href="#/progress">
-              Back to progress
+              {t('review.backToProgress')}
             </a>
             <a className="btn btn-secondary" href="#/learn">
-              Keep learning
+              {t('review.keepLearning')}
             </a>
           </div>
         </section>

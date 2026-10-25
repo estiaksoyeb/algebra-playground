@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { NumberLineState, ticks, displayNum } from '../../tools/numberline';
 import { Rational } from '../../math/rational';
 
@@ -15,6 +16,8 @@ interface Props {
  * the same onChange, which updates the model. All drawing derives from model state.
  */
 export function NumberLineView({ state, onChange, readOnly, idPrefix = 'nl' }: Props) {
+  const { i18n } = useTranslation();
+  const bn = i18n.language === 'bn';
   const W = 340;
   const H = 140;
   const padL = 26;
@@ -99,7 +102,7 @@ export function NumberLineView({ state, onChange, readOnly, idPrefix = 'nl' }: P
       ref={svgRef}
       viewBox={`0 0 ${W} ${H}`}
       role="slider"
-      aria-label={`Number line position. Current value ${displayNum(state.value)}. Use arrow keys to move.`}
+      aria-label={bn ? `সংখ্যারেখার অবস্থান। এখনকার মান ${displayNum(state.value)}। সরাতে তির চিহ্নের বোতাম চাপুন।` : `Number line position. Current value ${displayNum(state.value)}. Use arrow keys to move.`}
       aria-valuemin={state.min.toNumber()}
       aria-valuemax={state.max.toNumber()}
       aria-valuenow={state.value.toNumber()}

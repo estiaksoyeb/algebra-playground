@@ -31,3 +31,8 @@ if (typeof Element !== 'undefined' && !Element.prototype.setPointerCapture) {
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.releasePointerCapture = () => {};
 }
+
+// Default the whole suite to English. The app is language-aware now, so a test that asserts
+// on learner-facing copy must start from a known language no matter what a previous test
+// left in storage. Tests that exercise Bengali switch explicitly.
+localStorage.setItem('algebra-playground:lang', 'en');

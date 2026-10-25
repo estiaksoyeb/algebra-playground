@@ -4,6 +4,8 @@ import { DescriptionList, Stepper, ToolControls, ToolHeader } from './shared';
 import { MathView as Math } from '../../components/MathComp';
 import { toLatex } from '../../math/evaluate';
 import { tryParse, evaluationSteps } from '../../math/expression';
+import { useTranslation } from 'react-i18next';
+import { normalizeMathInput } from '../../i18n/normalizeMathInput';
 
 const num = { round: (n: number) => globalThis.Math.round(n), abs: (n: number) => globalThis.Math.abs(n), max: (a: number, b: number) => globalThis.Math.max(a, b), min: (a: number, b: number) => globalThis.Math.min(a, b) };
 
@@ -17,10 +19,6 @@ export interface EvaluatorPanelProps {
   mode?: 'evaluate' | 'simplify';
 }
 
-const NUMERIC_HINT = 'Use numbers, + − × ÷ ^ and brackets, e.g. 2 + 3 * 4 or (2 + 3) * 4.';
-const VARIABLE_HINT = 'Use numbers, single letters (x, y), + − × ÷ ^ and brackets. Typed with a keyboard: 2x, 3(x+1), x^2.';
-const NUMERIC_DESCRIPTION = 'Type a numeric expression to evaluate it step by step using the order of operations.';
-
 /** `2 + 3 * 4` → `(2 + 3) * 4`: brackets around the whole sum that is being multiplied. */
 function bracketTheSum(expression: string): string {
   const parsed = tryParse(expression);
@@ -30,6 +28,7 @@ function bracketTheSum(expression: string): string {
 
 /** One expression tool with two focused modes: evaluate at a value, or simplify. */
 export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embedded }: EvaluatorPanelProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(state.expression);
   const [error, setError] = useState<string | null>(null);
   const showSteps = embedded;
@@ -42,7 +41,9 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
   // A variable-free expression ("2 + 3 * 4") gets the arithmetic wording and no x controls.
   const numeric = d.ok && (d.vars ?? []).length === 0;
 
-  const commit = (raw: string) => {
+  const commit = (input: string) => {
+    // Bengali keyboard digits become ASCII before parsing; the box shows what will be parsed.
+    const raw = normalizeMathInput(input);
     setDraft(raw);
     const check = tryParse(raw);
     if (!check.ok) {
@@ -60,20 +61,26 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
     <div className="stack">
       <ToolHeader
         level={level}
-        title={mode === 'evaluate' ? 'Expression evaluator' : 'Simplify an expression'}
+        title={mode === 'evaluate' ? t('tool.evaluator.title') : t('tool.evaluator.simplifyTitle')}
         description={
           mode === 'evaluate'
             ? numeric
               ? embedded
-                ? NUMERIC_DESCRIPTION
-                : 'Type a calculation and see its exact value. Use numbers, or a letter like x.'
-              : 'Type an expression using x, then choose a value for x. Results are exact when possible.'
-            : 'Type a polynomial expression (with x) and see it expanded and collected. The original expression is never changed.'
+                ? t('tool.evaluator.numericDescription')
+                : t('tool.evaluator.numericPlayground')
+              : t('tool.evaluator.variableDescription')
+            : t('tool.evaluator.simplifyDescription')
         }
       />
       <div className="equation-strip" aria-live="polite" data-testid="evaluator-strip">
         <div className="stack-sm" style={{ gap: 0, minWidth: 0, flex: 1 }}>
-          <span className="equation-strip-label">{mode === 'simplify' ? 'Simplified' : numeric ? 'Result' : `Value at x = ${state.x}`}</span>
+          <span className="equation-strip-label">
+            {mode === 'simplify'
+              ? t('tool.simplified')
+              : numeric
+                ? t('tool.result')
+                : t('tool.valueAtX', { x: state.x })}
+          </span>
           <div className="math-display" style={{ padding: 0 }}>
             {mode === 'evaluate' ? (
               d.ok ? (
@@ -92,7 +99,7 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
       <ToolControls>
         <div>
           <label className="field-label" htmlFor={inputId}>
-            Expression
+            {t('tool.expression')}
           </label>
           <input
             id={inputId}
@@ -102,7 +109,7 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
             autoCapitalize="off"
             autoComplete="off"
             inputMode="text"
-            placeholder={numeric ? 'e.g. 2 + 3 * 4' : 'e.g. 3(x + 2) - x'}
+            placeholder={numeric ? t('tool.evaluator.placeholderNumeric') : t('tool.evaluator.placeholderVariable')}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${inputId}-error` : undefined}
             onChange={(e) => commit(e.target.value)}
@@ -113,11 +120,13 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
               {error}
             </p>
           )}
-          <p className="xsmall muted mt-2 mb-0">{numeric ? NUMERIC_HINT : VARIABLE_HINT}</p>
+          <p className="xsmall muted mt-2 mb-0">
+            {numeric ? t('tool.evaluator.numericHint') : t('tool.evaluator.variableHint')}
+          </p>
         </div>
         {parsed.ok && (
           <div className="feedback feedback-info" role="status" data-testid="expression-latex">
-            Read as <Math tex={toLatex(parsed.expr)} label="parsed expression" />
+            {t('tool.evaluator.readAs')} <Math tex={toLatex(parsed.expr)} label={t('tool.evaluator.readAsLabel')} />
           </div>
         )}
         {mode === 'evaluate' ? (
@@ -125,7 +134,7 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
             {/* x only exists in the UI when the expression actually contains a variable. */}
             {!numeric && (
               <>
-                <Stepper label="Value of x" value={state.x} min={-20} max={20} onChange={(v) => onChange({ ...state, x: num.round(v) })} />
+                <Stepper label={t('tool.evaluator.valueOfX')} value={state.x} min={-20} max={20} onChange={(v) => onChange({ ...state, x: num.round(v) })} />
                 <div className="btn-row">
                   {[-2, -1, 0, 1, 2, 3].map((v) => (
                     <button key={v} type="button" className="btn btn-secondary btn-sm" onClick={() => onChange({ ...state, x: v })} aria-pressed={state.x === v}>
@@ -144,7 +153,7 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
                   aria-pressed={state.expression === '2 + 3 * 4'}
                   data-testid="evaluator-without-brackets"
                 >
-                  Without brackets: 2 + 3 * 4
+                  {t('tool.evaluator.withoutBrackets')}
                 </button>
                 <button
                   type="button"
@@ -153,19 +162,21 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
                   aria-pressed={state.expression === '(2 + 3) * 4'}
                   data-testid="evaluator-with-brackets"
                 >
-                  With brackets: (2 + 3) * 4
+                  {t('tool.evaluator.withBrackets')}
                 </button>
               </div>
             )}
             {d.ok && draftMatchesModel && (
               <div className={`feedback ${d.numeric?.includes('approx') ? 'feedback-hint' : 'feedback-success'}`} role="status" data-testid="evaluator-result">
-                {numeric ? `Evaluating ${d.text} gives ${d.numeric}.` : `Substituting x = ${state.x} into the expression gives ${d.numeric}.`}
+                {numeric
+                  ? t('tool.evaluatingExact', { expression: d.text, value: d.numeric })
+                  : t('tool.evaluator.substituting', { x: state.x, value: d.numeric })}
               </div>
             )}
             {showSteps && steps.length > 0 && (
-              <section className="card stack-sm" aria-label="Steps" data-testid="evaluator-steps">
+              <section className="card stack-sm" aria-label={t('tool.steps')} data-testid="evaluator-steps">
                 <span className="field-label" style={{ margin: 0 }}>
-                  Order of operations
+                  {t('tool.steps')}
                 </span>
                 <ol style={{ margin: 0, paddingLeft: 22 }} className="small">
                   {steps.map((st, i) => (
@@ -186,7 +197,8 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
             )}
             {s.ok && draftMatchesModel && (
               <div className="feedback feedback-success" role="status" data-testid="simplify-result">
-                The simplified form is <Math tex={s.latex ?? ''} label={s.text} />. It gives the same value for every value of x.
+                {t('tool.evaluator.simplifiedIs')} <Math tex={s.latex ?? ''} label={s.text} />.{' '}
+                {t('tool.evaluator.sameForEveryValue')}
               </div>
             )}
           </>
@@ -199,11 +211,11 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
               className="btn btn-ghost btn-sm"
               onClick={() => commit(createEval(mode === 'simplify' ? { expression: '3(x + 2) - x' } : {}).expression)}
             >
-              Example: 3(x + 2) − x
+              {t('tool.evaluator.example')}
             </button>
             {numeric && !embedded && (
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => commit(bracketTheSum(state.expression))}>
-                Try with brackets
+                {t('tool.evaluator.tryBrackets')}
               </button>
             )}
           </div>
@@ -212,13 +224,11 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
       {/* Developer-facing notes ("safe parser", "polynomial-style") stay in the Playground. */}
       {!embedded && (
         <DescriptionList
-          title="How it works"
+          title={t('tool.evaluator.howItWorks')}
           lines={[
-            'Expressions follow the standard order of operations: brackets first, then powers, then multiplication and division, then addition and subtraction.',
-            'Substitution uses exact fractions, so 1/3 + 1/6 is shown as 1/2 rather than a rounded decimal.',
-            mode === 'simplify'
-              ? 'Simplification expands products and collects like terms using exact arithmetic.'
-              : 'You can evaluate numeric calculations or algebraic expressions with a variable like x.',
+            t('tool.evaluator.howOrder'),
+            t('tool.evaluator.howExact'),
+            mode === 'simplify' ? t('tool.evaluator.howSimplify') : t('tool.evaluator.howEvaluate'),
           ]}
         />
       )}
@@ -228,7 +238,8 @@ export function EvaluatorPanel({ state, onChange, mode = 'evaluate', level, embe
 
 /** Compare mode: two expressions, equivalence verdict with explicit uncertainty. */
 export function ComparePanel({ a, b }: { a: string; b: string }) {
-  const res = compareExpressions(a, b);
+  const { i18n } = useTranslation();
+  const res = compareExpressions(a, b, i18n.language);
   return (
     <div className={`feedback ${res.result === 'yes' ? 'feedback-success' : res.result === 'no' ? 'feedback-error' : 'feedback-hint'}`} role="status" data-testid="compare-result">
       {res.message}

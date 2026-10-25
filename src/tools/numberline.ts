@@ -8,6 +8,7 @@
  */
 import { Rational } from '../math/rational';
 import { ToolModel } from './model';
+import { t } from '../i18n';
 
 export interface NumberLineState {
   value: Rational;
@@ -121,12 +122,14 @@ export const numberLineModel: ToolModel<NumberLineState> = {
       text: `${displayNum(start)} ${sign} ${displayNum(size)} = ${displayNum(s.value)}`,
     };
   },
-  describe: (s) => ({
-    title: 'Number line',
+  describe: (s, locale) => ({
+    title: t('tool.numberline.title', { lng: locale }),
     lines: [
-      `The marker is at ${displayNum(s.value)}.`,
-      `Visible range ${displayNum(s.min)} to ${displayNum(s.max)}, steps of ${displayNum(s.step)}.`,
-      s.mark ? `A reference marker is at ${displayNum(s.mark)}.` : 'Tap "Mark here" to drop a reference marker.',
+      t('tool.numberline.atMarker', { lng: locale, value: displayNum(s.value) }),
+      t('tool.numberline.range', { lng: locale, min: displayNum(s.min), max: displayNum(s.max), step: displayNum(s.step) }),
+      s.mark
+        ? t('tool.numberline.referenceAt', { lng: locale, mark: displayNum(s.mark) })
+        : t('tool.numberline.markHint', { lng: locale }),
     ],
   }),
 };

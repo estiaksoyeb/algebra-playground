@@ -47,6 +47,12 @@ export interface Exercise {
   /** Used by the mastery system to require variety (e.g. 'sign', 'two-step'). */
   variety: string;
   misconception?: string;
+  /**
+   * Display-only replacement text for a `choice` option, keyed by the canonical option
+   * string. Set by the language overlay; never present in authored content. The answer
+   * still travels as the canonical `choices` string, so grading is unaffected.
+   */
+  choiceLabels?: Record<string, string>;
 }
 
 export interface MasteryCriteria {

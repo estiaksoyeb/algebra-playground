@@ -5,6 +5,7 @@ import { DescriptionList, EquationStrip, Stepper, ToolControls, ToolHeader } fro
 import { MathView as Math } from '../../components/MathComp';
 import { checkSolution, equationText } from '../../math/equation';
 import type { HistoryState } from '../types';
+import { useTranslation } from 'react-i18next';
 
 export interface BalancePanelProps {
   /** Heading level for the panel title: 2 when embedded under a lesson h1. */
@@ -21,30 +22,32 @@ export interface BalancePanelProps {
  * derived from the same BalanceState via the math engine.
  */
 export function BalancePanel({ history, onChange, onProblem, level, embedded }: BalancePanelProps) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const state = history.present;
   const [amount, setAmount] = useState(3);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error' | 'info'; text: string } | null>(null);
   const [checked, setChecked] = useState<{ ok: boolean; text: string } | null>(null);
   const sym = balanceModel.symbolic(state);
-  const desc = balanceModel.describe(state);
+  const desc = balanceModel.describe(state, lang);
   const sol = solutionOf(state);
   const eq = useMemo(() => balanceEquation(state), [state]);
 
   const run = (rule: 'add' | 'subtract') => {
-    const res = applyOperation(state, { rule, amount });
+    const res = applyOperation(state, { rule, amount }, lang);
     if (!res.ok || !res.state) {
-      setFeedback({ kind: 'error', text: res.error ?? 'That operation is not valid.' });
-      onProblem?.(res.error ?? 'Operation not allowed');
+      setFeedback({ kind: 'error', text: res.error ?? t('tool.balance.invalidError') });
+      onProblem?.(res.error ?? t('tool.balance.invalidError'));
       return;
     }
     onChange({ past: [...history.past, state].slice(-50), present: res.state, future: [] });
-    setFeedback({ kind: 'ok', text: res.explanation ?? 'Done.' });
+    setFeedback({ kind: 'ok', text: res.explanation ?? t('tool.balance.done') });
     setChecked(null);
   };
 
   const check = () => {
     if (!sol) {
-      setChecked({ ok: false, text: 'There is no value of x that makes both sides equal.' });
+      setChecked({ ok: false, text: t('tool.balance.noSolution') });
       return;
     }
     const res = checkSolution(eq, 'x', sol);
@@ -52,7 +55,11 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
       ok: res.holds,
       text: res.error
         ? res.error
-        : `Substitute x = ${sol.toString()}: left = ${res.left.value.toString()}, right = ${res.right.value.toString()}. ${res.holds ? 'Both sides match, so it is the solution.' : 'They differ.'}`,
+        : t(res.holds ? 'tool.balance.checkOk' : 'tool.balance.checkNo', {
+            value: sol.toString(),
+            left: res.left.value.toString(),
+            right: res.right.value.toString(),
+          }),
     });
   };
 
@@ -69,14 +76,14 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
   const showSolution = !embedded || isolated || checked !== null;
   return (
     <div className="stack">
-      <ToolHeader level={level} title="Equation balance" description="Both sides must stay equal. Add or subtract the same amount on each side and watch the equation change with the scale." />
+      <ToolHeader level={level} title={t('tool.balance.title')} description={t('tool.balance.help')} />
       <EquationStrip
-        label="Equation"
+        label={t('tool.equation')}
         latex={<Math tex={sym.latex} label={sym.text} />}
       >
         {showSolution && (
           <span className="pill" data-testid="solution-pill">
-            {sol ? `x = ${sol.toString()}` : 'no solution'}
+            {sol ? `x = ${sol.toString()}` : t('tool.balance.noSolutionShort')}
           </span>
         )}
       </EquationStrip>
@@ -84,10 +91,10 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
         <BalanceView state={state} />
       </div>
       <ToolControls>
-        <Stepper label="Amount" value={amount} min={0} max={20} onChange={setAmount} />
+        <Stepper label={t('tool.balance.amount')} value={amount} min={0} max={20} onChange={setAmount} />
         <div className="btn-row">
           <button type="button" className="btn" onClick={() => run('add')} data-testid="btn-add-both">
-            Add {amount} to both sides
+            {t('tool.addBoth', { amount })}
           </button>
           <button
             type="button"
@@ -96,7 +103,7 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
             data-testid="btn-subtract-both"
             disabled={amount <= 0}
           >
-            Subtract {amount} from both sides
+            {t('tool.subtractBoth', { amount })}
           </button>
         </div>
         <div className="btn-row">
@@ -107,17 +114,17 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
             onClick={check}
             disabled={!sol}
           >
-            Check the solution
+            {t('tool.checkSolution')}
           </button>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => {
-              const v = verify(state);
-              setFeedback(v ? { kind: v.ok ? 'ok' : 'error', text: v.text } : { kind: 'info', text: 'No single solution to verify.' });
+              const v = verify(state, lang);
+              setFeedback(v ? { kind: v.ok ? 'ok' : 'error', text: v.text } : { kind: 'info', text: t('tool.balance.nothingToVerify') });
             }}
           >
-            Substitute back
+            {t('tool.substituteBack')}
           </button>
         </div>
         {feedback && (
@@ -131,7 +138,9 @@ export function BalancePanel({ history, onChange, onProblem, level, embedded }: 
           </div>
         )}
       </ToolControls>
-      {!embedded && <DescriptionList title={desc.title} lines={[...desc.lines, `Symbolically: ${plain}.`]} />}
+      {!embedded && (
+        <DescriptionList title={desc.title} lines={[...desc.lines, t('tool.balance.symbolically', { equation: plain })]} />
+      )}
     </div>
   );
 }

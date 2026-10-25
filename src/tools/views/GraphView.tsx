@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GraphState, graphModel, lineSegments, parabolaPoints, setPoint, tableOfValues, systemSolution } from '../../tools/graph';
 
 interface Props {
@@ -9,6 +10,8 @@ interface Props {
 
 /** Coordinate plane. Points/lines/parabolas are derived from model parameters. */
 export function GraphView({ state, onChange, interactive }: Props) {
+  const { i18n } = useTranslation();
+  const bn = i18n.language === 'bn';
   const W = 340;
   const H = 340;
   const pad = 20;
@@ -74,7 +77,7 @@ export function GraphView({ state, onChange, interactive }: Props) {
         ref={svgRef}
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`Coordinate plane from -${R} to ${R}. ${describe(state, sol)}`}
+        aria-label={bn ? `স্থানাঙ্ক তল, -${R} থেকে ${R} পর্যন্ত। ${describe(state, sol, true)}` : `Coordinate plane from -${R} to ${R}. ${describe(state, sol, false)}`}
         data-testid="graph-svg"
         style={{ touchAction: 'none' }}
         onPointerDown={(e) => {
@@ -151,11 +154,18 @@ export function GraphView({ state, onChange, interactive }: Props) {
   );
 }
 
-function describe(s: GraphState, sol: { x: number; y: number } | null): string {
-  if (s.mode === 'explore') return `Point at (${s.point.x}, ${s.point.y}).`;
-  if (s.mode === 'quadratic') return `Parabola: ${graphModel.symbolic(s).text}.`;
-  if (s.mode === 'system') return sol ? `Two lines crossing at (${sol.x}, ${sol.y}).` : 'Two parallel lines with no intersection.';
-  return `Line y = ${s.m}x + ${s.b}.`;
+function describe(s: GraphState, sol: { x: number; y: number } | null, bn: boolean): string {
+  if (s.mode === 'explore') return bn ? `বিন্দু (${s.point.x}, ${s.point.y})-তে আছে।` : `Point at (${s.point.x}, ${s.point.y}).`;
+  if (s.mode === 'quadratic') return bn ? `পরাবৃত্ত: ${graphModel.symbolic(s).text}।` : `Parabola: ${graphModel.symbolic(s).text}.`;
+  if (s.mode === 'system')
+    return sol
+      ? bn
+        ? `দুইটা রেখা (${sol.x}, ${sol.y})-তে ছেদ করে।`
+        : `Two lines crossing at (${sol.x}, ${sol.y}).`
+      : bn
+        ? 'দুইটা সমান্তরাল রেখা, কোথাও ছেদ করে না।'
+        : 'Two parallel lines with no intersection.';
+  return bn ? `রেখা y = ${s.m}x + ${s.b}।` : `Line y = ${s.m}x + ${s.b}.`;
 }
 
 function quadraticTable(g: GraphState): { x: number; y: number }[] {

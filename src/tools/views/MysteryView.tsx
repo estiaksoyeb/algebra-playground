@@ -1,6 +1,9 @@
+import { useTranslation } from 'react-i18next';
 import { MysteryState, mysteryTotal } from '../../tools/mystery';
 
 export function MysteryView({ state }: { state: MysteryState }) {
+  const { i18n } = useTranslation();
+  const bn = i18n.language === 'bn';
   const W = 320;
   const H = 150;
   const total = mysteryTotal(state);
@@ -18,7 +21,7 @@ export function MysteryView({ state }: { state: MysteryState }) {
         </text>
         {state.reveal ? (
           <text x={boxW / 2} y={boxW + 16} textAnchor="middle" className="axis-label" style={{ fontSize: 11 }}>
-            holds {state.value}
+            {bn ? `আছে ${state.value}` : `holds ${state.value}`}
           </text>
         ) : (
           <text x={boxW / 2} y={boxW + 16} textAnchor="middle" className="axis-label" style={{ fontSize: 11 }}>
@@ -33,7 +36,11 @@ export function MysteryView({ state }: { state: MysteryState }) {
     <svg
       viewBox={`0 0 ${W} ${H}`}
       role="img"
-      aria-label={`${state.copies} mystery box${state.copies > 1 ? 'es' : ''} ${state.reveal ? `each holding ${state.value}` : 'with an unknown value'}, plus ${state.extra}, total ${total}${state.target !== undefined ? `, target ${state.target}` : ''}`}
+      aria-label={
+        bn
+          ? `${state.copies}টা অজানা বাক্স ${state.reveal ? `প্রতিটাতে ${state.value}` : '(মান অজানা)'}, সঙ্গে ${state.extra}, মোট ${total}${state.target !== undefined ? `, লক্ষ্য ${state.target}` : ''}`
+          : `${state.copies} mystery box${state.copies > 1 ? 'es' : ''} ${state.reveal ? `each holding ${state.value}` : 'with an unknown value'}, plus ${state.extra}, total ${total}${state.target !== undefined ? `, target ${state.target}` : ''}`
+      }
       data-testid="mystery-svg"
     >
       {items}

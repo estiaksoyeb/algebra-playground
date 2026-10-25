@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { BalanceState, solutionOf } from '../../tools/balance';
 
 const UNIT = 14;
@@ -15,6 +16,8 @@ interface Props {
  * instead (the equation still shows the true amount).
  */
 export function BalanceView({ state }: Props) {
+  const { i18n } = useTranslation();
+  const bn = i18n.language === 'bn';
   const W = 340;
   const H = 230;
   const pivotX = W / 2;
@@ -24,12 +27,16 @@ export function BalanceView({ state }: Props) {
   const tilt = Math.max(-1, Math.min(1, (rightWeight - leftWeight) / 80)) * 9; // degrees
   const sol = solutionOf(state);
   const balanced = sol !== null;
+  const label = bn
+    ? `তারাজু। বাম পাশে ${state.left.x}টা x ব্লক আর ${state.left.units}টা একক। ডান পাশে ${state.right.x}টা x ব্লক আর ${state.right.units}টা একক। ${balanced ? 'তারাজু এখন সমান হতে পারে।' : 'তারাজু এখনও সমান হয়নি।'}`
+    : `Balance scale. Left side ${state.left.x} x blocks and ${state.left.units} units. Right side ${state.right.x} x blocks and ${state.right.units} units. ${balanced ? 'The scale can balance.' : 'The scale cannot balance.'}`;
+  const panLabels = bn ? { left: 'বাম', right: 'ডান', impossible: 'এই সমীকরণ কখনো সত্যি হয় না' } : { left: 'left', right: 'right', impossible: 'This equation is never true' };
 
   return (
     <svg
       viewBox={`0 0 ${W} ${H}`}
       role="img"
-      aria-label={`Balance scale. Left side ${state.left.x} x blocks and ${state.left.units} units. Right side ${state.right.x} x blocks and ${state.right.units} units. ${balanced ? 'The scale can balance.' : 'The scale cannot balance.'}`}
+      aria-label={label}
       data-testid="balance-svg"
     >
       {/* stand */}
@@ -46,15 +53,15 @@ export function BalanceView({ state }: Props) {
       </g>
       <g>
         <text x={80} y={H - 8} textAnchor="middle" className="axis-label" style={{ fontSize: 11 }}>
-          left
+          {panLabels.left}
         </text>
         <text x={W - 80} y={H - 8} textAnchor="middle" className="axis-label" style={{ fontSize: 11 }}>
-          right
+          {panLabels.right}
         </text>
       </g>
       {!balanced && (
         <text x={pivotX} y={24} textAnchor="middle" className="axis-label" fill="var(--danger)" style={{ fontSize: 12, fontWeight: 600 }}>
-          This equation is never true
+          {panLabels.impossible}
         </text>
       )}
     </svg>

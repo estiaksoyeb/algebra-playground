@@ -10,6 +10,8 @@ import { evaluateExact, toPlainText } from '../math/evaluate';
 import { polynomialEquivalence, polyToText, toPolynomial } from '../math/polynomial';
 import { Rational } from '../math/rational';
 import { Exercise } from '../content/types';
+import { t } from '../i18n';
+import { normalizeMathInput } from '../i18n/normalizeMathInput';
 
 export type NormalizedAnswer =
   | { type: 'number'; value: Rational }
@@ -106,19 +108,23 @@ export interface GradeContext {
   hintsUsed?: number;
 }
 
-export function gradeAnswer(ex: Exercise, raw: string, ctx: GradeContext = {}): GradeResult {
+export function gradeAnswer(ex: Exercise, rawInput: string, ctx: GradeContext = {}): GradeResult {
+  // A phone keyboard left in Bengali types ০-৯. That is still the right answer, so normalise
+  // the keystrokes before anything is parsed. Displayed maths is never normalised this way
+  // because it is never Bengali in the first place.
+  const raw = normalizeMathInput(rawInput);
   const user = raw.trim();
-  if (!user) return { correct: false, message: 'Type an answer first.', error: 'empty' };
+  if (!user) return { correct: false, message: t('tutor.grade.empty'), error: 'empty' };
 
   if (ex.kind === 'choice') {
     const got = normalizeChoice(user);
     const want = normalizeChoice(String(ex.answer));
-    if (got === want) return { correct: true, message: 'Correct!' };
+    if (got === want) return { correct: true, message: t('tutor.grade.correct') };
     // comparison-by-choice-id; misconception comes from the chosen distractor mapping
     return {
       correct: false,
       misconception: `${ex.conceptId}-choice-${got}`,
-      message: 'Not quite. Look again at what the expression means.',
+      message: t('tutor.grade.lookAgain'),
     };
   }
 
@@ -126,7 +132,7 @@ export function gradeAnswer(ex: Exercise, raw: string, ctx: GradeContext = {}): 
 
   const match = accepted.some((candidate) => answersMatch(ex, candidate, user, ctx));
   if (match) {
-    return { correct: true, message: 'Correct! ✓' };
+    return { correct: true, message: t('tutor.grade.correctTick') };
   }
 
   // Wrong: diagnose.
@@ -204,7 +210,7 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
     if (got.type === 'text') {
       return {
         id: 'unparseable',
-        message: `I couldn't read “${user}”. Try a number like 7, -2, or 3/4.`,
+        message: t('tutor.grade.unreadableNumeric', { input: user }),
         parseError: 'unparseable',
       };
     }
@@ -212,29 +218,29 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
       const w = want.value;
       const g = got.value;
       if (w.isNegative() && g.eq(w.abs())) {
-        return { id: 'sign-error', message: `Almost! Watch the sign: ${g.toString()} is positive, but the exact answer is negative.`, parsed: g.toString() };
+        return { id: 'sign-error', message: t('tutor.grade.signPositiveButNegative', { got: g.toString() }), parsed: g.toString() };
       }
       if (!w.isNegative() && g.eq(w.neg())) {
-        return { id: 'sign-error', message: `Almost! You changed the sign. The answer is ${w.toString()}, not ${g.toString()}.`, parsed: g.toString() };
+        return { id: 'sign-error', message: t('tutor.grade.signChanged', { want: w.toString(), got: g.toString() }), parsed: g.toString() };
       }
       if (w.isNegative() !== g.isNegative() && !g.abs().eq(w.abs())) {
-        return { id: 'sign-error', message: 'Check your signs on every term — positive and negative signs matter.', parsed: g.toString() };
+        return { id: 'sign-error', message: t('tutor.grade.signCheck'), parsed: g.toString() };
       }
       const slip = diagnoseNumericSlip(ex, g);
       if (slip) return slip;
       return numericDiagnosis(w, g, isCountingQuestion(ex));
     }
-    return { id: 'arithmetic', message: 'That answer has a different form. Try a single number.', parsed: summarize(got) };
+    return { id: 'arithmetic', message: t('tutor.grade.formSingleNumber'), parsed: summarize(got) };
   }
 
   if (ex.kind === 'expression') {
     const want = normalizeMathematical(expected);
     const got = normalizeMathematical(user);
     if (got.type === 'text') {
-      return { id: 'unparseable', message: `I couldn't read “${user}”. Use numbers, single letters like x, and operators + - * / ^ .`, parseError: 'unparseable' };
+      return { id: 'unparseable', message: t('tutor.grade.unreadableExpression', { input: user }), parseError: 'unparseable' };
     }
     if (want.type !== 'expression' || got.type !== 'expression') {
-      return { id: 'form-mismatch', message: 'Your answer has the wrong form for this exercise.' };
+      return { id: 'form-mismatch', message: t('tutor.grade.formWrong') };
     }
     const wp = safePoly(want.expr);
     const gp = safePoly(got.expr);
@@ -251,7 +257,7 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
           if (hasConstTerm && gotCoeff.eq(expectedVar.add(expectedConst))) {
             return {
               id: 'combined-unlike-terms',
-              message: `You combined ${polyToText(wp)} into one ${wantVar} term. Constants and ${wantVar}-terms are unlike terms — only add terms with exactly the same variable parts.`,
+              message: t('tutor.grade.combinedIntoOne', { from: polyToText(wp), variable: wantVar }),
               parsed: polyToText(gp),
             };
           }
@@ -260,7 +266,7 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
       // sign error in coefficients: same terms, opposite sign
       const neg = wp.neg();
       if (gp.equals(neg)) {
-        return { id: 'sign-error', message: 'Every sign is flipped. Check the subtraction signs in your work.', parsed: polyToText(gp) };
+        return { id: 'sign-error', message: t('tutor.grade.signsFlipped'), parsed: polyToText(gp) };
       }
       const diff = gp.sub(wp);
       // Partial distribution: learner expanded the variable term but not the constant
@@ -280,17 +286,17 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
         // only diagnose as partial distribution when the user's constant matches an inner constant
         return {
           id: 'partial-distribution',
-          message: 'It looks like the factor only multiplied the variable term. Multiply it by every term inside the brackets, including the constant.',
+          message: t('tutor.grade.factorOnlyVariable'),
           parsed: polyToText(gp),
         };
       }
       if (diff.terms.some((t) => Object.keys(t.exps).length > 0) && diff.terms.every((t) => t.coeff.abs().eq(Rational.ONE))) {
-        return { id: 'coefficient-error', message: 'The variable parts are right but the coefficients are off. Double-check the numbers multiplying each term.', parsed: polyToText(gp) };
+        return { id: 'coefficient-error', message: t('tutor.grade.coefficients'), parsed: polyToText(gp) };
       }
     }
     return {
       id: 'not-equivalent',
-      message: `That isn't equivalent to the target expression. Compare term by term.`,
+      message: t('tutor.grade.notEquivalent'),
       parsed: got.type === 'expression' ? toPlainText(got.expr) : undefined,
     };
   }
@@ -299,7 +305,7 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
     const got = parseEquationAnswer(user);
     const want = parseEquationAnswer(expected);
     if (!got) {
-      return { id: 'unparseable', message: 'Write an equation of the form x = number.', parseError: 'unparseable' };
+      return { id: 'unparseable', message: t('tutor.grade.equationForm'), parseError: 'unparseable' };
     }
     if (got.type === 'equation') {
       try {
@@ -307,38 +313,38 @@ export function diagnose(ex: Exercise, user: string, ctx: GradeContext, accepted
         // report a value for feedback
         void gr;
       } catch {
-        return { id: 'unparseable', message: 'Use numbers on both sides, like x = 4.', parseError: 'unparseable' };
+        return { id: 'unparseable', message: t('tutor.grade.equationNumbers'), parseError: 'unparseable' };
       }
     }
     if (want && want.type === 'equation' && got.type === 'equation') {
       try {
         const wv = evaluateExact(want.right, {}).value;
         const gv = evaluateExact(got.right, {}).value;
-        if (wv.isNegative() && gv.eq(wv.abs())) return { id: 'sign-error', message: 'Watch the sign — the answer is negative.', parsed: gv.toString() };
+        if (wv.isNegative() && gv.eq(wv.abs())) return { id: 'sign-error', message: t('tutor.grade.negativeSolution'), parsed: gv.toString() };
         const variableValue = ctx.variableValue ?? expectedVariableValue(ex);
         if (variableValue) {
           const half = variableValue.div(Rational.of(2));
           if (gv.eq(variableValue.mul(Rational.of(2))) || gv.eq(half)) {
-            return { id: 'inverse-operation-error', message: 'It looks like the wrong inverse operation was used. Undo addition with subtraction, multiplication with division.', parsed: gv.toString() };
+            return { id: 'inverse-operation-error', message: t('tutor.grade.inverseOperation'), parsed: gv.toString() };
           }
           const swapped = swappedOperationValue(ex, variableValue);
           if (swapped && gv.eq(swapped)) {
-            return { id: 'inverse-operation-error', message: 'It looks like the wrong inverse operation was used. Undo addition with subtraction, multiplication with division.', parsed: gv.toString() };
+            return { id: 'inverse-operation-error', message: t('tutor.grade.inverseOperation'), parsed: gv.toString() };
           }
         }
-        return { id: 'not-solution', message: 'Check by substituting your value into the original equation — it does not make both sides equal.', parsed: gv.toString() };
+        return { id: 'not-solution', message: t('tutor.grade.notSolutionCheck'), parsed: gv.toString() };
       } catch {
         /* ignore */
       }
     }
-    return { id: 'not-solution', message: 'Not the right solution yet. Substitute your value into the original equation to check.' };
+    return { id: 'not-solution', message: t('tutor.grade.notSolution') };
   }
 
   if (ex.kind === 'coordinate') {
-    return { id: 'coordinate-order', message: 'Coordinates are written (x, y) — horizontal first, then vertical.' };
+    return { id: 'coordinate-order', message: t('tutor.grade.coordinateOrder') };
   }
 
-  return { id: 'unknown', message: 'Not quite. Try again — check each step.' };
+  return { id: 'unknown', message: t('tutor.grade.unknown') };
 }
 
 function safePoly(e: Expr) {
@@ -480,11 +486,11 @@ function numericDiagnosis(want: Rational, got: Rational, counting: boolean): Dia
   const sameSign = want.isNegative() === got.isNegative();
   const diff = got.sub(want);
   if (counting && sameSign && diff.abs().eq(Rational.ONE) && want.abs().cmp(Rational.of(50)) < 0) {
-    return { id: 'off-by-one', message: `Very close: you're off by one. Re-count carefully.`, parsed: got.toString() };
+    return { id: 'off-by-one', message: t('tutor.grade.offByOne'), parsed: got.toString() };
   }
   return {
     id: 'arithmetic',
-    message: `Not yet. Your answer ${got.toString()} differs from the correct value. Check each step's arithmetic.`,
+    message: t('tutor.grade.differs', { got: got.toString() }),
     parsed: got.toString(),
   };
 }
@@ -519,7 +525,7 @@ function diagnoseNumericSlip(ex: Exercise, got: Rational): Diagnosis | null {
   if (leftToRight && leftToRight.eq(got)) {
     return {
       id: 'order-left-to-right',
-      message: 'It looks like you worked left to right. Do × and ÷ before + and −.',
+      message: t('tutor.grade.leftToRight'),
       parsed: got.toString(),
     };
   }
@@ -531,7 +537,7 @@ function diagnoseNumericSlip(ex: Exercise, got: Rational): Diagnosis | null {
     if (v && v.eq(got)) {
       return {
         id: 'exponent-as-multiply',
-        message: 'A power means repeated multiplication: 2³ is 2 × 2 × 2, not 2 × 3.',
+        message: t('tutor.grade.exponentAsMultiply'),
         parsed: got.toString(),
       };
     }

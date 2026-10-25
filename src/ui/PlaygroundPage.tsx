@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppSession } from './useAppSession';
 import { Page } from './Shell';
 import { openExperiment } from './experiments';
 import { ToolId } from '../tools/types';
-import { TOOL_META, TOOL_LIST } from '../tools/registry';
+import { TOOL_META, TOOL_LIST, toolText } from '../tools/registry';
 import { stateFromRaw } from '../tools/toolState';
+import { formatDate } from '../i18n';
 
 /** Short labels for the tool icons, keyed by tool id. */
 function ToolGlyph({ id }: { id: ToolId }) {
@@ -63,6 +65,7 @@ function ToolGlyph({ id }: { id: ToolId }) {
 }
 
 export function PlaygroundPage() {
+  const { t, i18n } = useTranslation();
   const session = useAppSession();
   const experiments = session.state.data.experiments;
   const byTool = useMemo(() => {
@@ -72,24 +75,22 @@ export function PlaygroundPage() {
   }, [experiments]);
 
   return (
-    <Page title="Playground">
-      <h1>Playground</h1>
-      <p className="muted">
-        Eight visual tools that do real maths. Change anything — the picture and the symbols always agree — and save a setup to come back to it.
-      </p>
+    <Page title={t('nav.playground')}>
+      <h1>{t('nav.playground')}</h1>
+      <p className="muted">{t('playground.intro')}</p>
       <div className="playground-list">
-        {TOOL_LIST.map((t) => (
-          <a key={t.id} className="tool-card" href={`#/playground/${t.id}`} data-testid={`tool-card-${t.id}`}>
+        {TOOL_LIST.map((tool) => (
+          <a key={tool.id} className="tool-card" href={`#/playground/${tool.id}`} data-testid={`tool-card-${tool.id}`}>
             <span className="tool-card-icon">
-              <ToolGlyph id={t.id} />
+              <ToolGlyph id={tool.id} />
             </span>
             <span>
-              <h3>{t.name}</h3>
+              <h3>{toolText(tool.id, 'name')}</h3>
               <span className="small muted" style={{ display: 'block' }}>
-                {t.description}
+                {toolText(tool.id, 'description')}
               </span>
-              {byTool.get(t.id) ? (
-                <span className="pill pill-brand mt-2">{byTool.get(t.id)} saved</span>
+              {byTool.get(tool.id) ? (
+                <span className="pill pill-brand mt-2">{t('playground.savedCount', { count: byTool.get(tool.id) })}</span>
               ) : null}
             </span>
           </a>
@@ -98,10 +99,10 @@ export function PlaygroundPage() {
 
       <section className="card mt-4" aria-labelledby="saved-experiments">
         <h2 id="saved-experiments" style={{ fontSize: 'var(--fs-lg)' }}>
-          Saved experiments
+          {t('progress.experimentsHeading')}
         </h2>
         {experiments.length === 0 ? (
-          <p className="small muted mb-0">Nothing saved yet. Open a tool and press “Save experiment”.</p>
+          <p className="small muted mb-0">{t('playground.nothingSaved')}</p>
         ) : (
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }} className="stack-sm">
             {experiments.map((e) => (
@@ -111,7 +112,9 @@ export function PlaygroundPage() {
                     {e.name}
                   </strong>
                   <span className="xsmall muted">
-                    {TOOL_META[e.tool as ToolId]?.name ?? e.tool} · {new Date(e.updatedAt).toLocaleDateString()}
+                    {/* Storage is keyed by tool id; the readable name is for the learner. */}
+                    {e.tool in TOOL_META ? toolText(e.tool as ToolId, 'name') : e.tool} ·{' '}
+                    {formatDate(e.updatedAt, i18n.language)}
                   </span>
                 </span>
                 <span className="btn-row" style={{ flexWrap: 'nowrap' }}>
@@ -122,7 +125,7 @@ export function PlaygroundPage() {
                       if (e.tool in TOOL_META) openExperiment(e.tool, e.id);
                     }}
                   >
-                    Open
+                    {t('progress.open')}
                   </button>
                   <DeleteExperimentButton id={e.id} name={e.name} onDelete={session.deleteExperiment} />
                 </span>
@@ -155,10 +158,11 @@ function DeleteExperimentButton({
   onDelete: (id: string) => Promise<boolean>;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const { t } = useTranslation();
   if (!confirming) {
     return (
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)} aria-label={`Delete ${name}`}>
-        Delete
+      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirming(true)} aria-label={t('tool.deleteExperiment', { name })}>
+        {t('tool.delete')}
       </button>
     );
   }
@@ -170,13 +174,13 @@ function DeleteExperimentButton({
         onClick={async () => {
           const ok = await onDelete(id);
           setConfirming(false);
-          if (!ok) alert('The experiment could not be deleted. Storage may be unavailable.');
+          if (!ok) alert(t('tool.deleteFailed'));
         }}
       >
-        Confirm
+        {t('tool.confirmDelete')}
       </button>
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirming(false)}>
-        Cancel
+        {t('tool.cancel')}
       </button>
     </span>
   );

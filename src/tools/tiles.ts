@@ -12,6 +12,7 @@
 import { toPolynomial, polyToLatex, polyToText } from '../math/polynomial';
 import { parseExpression } from '../math/expression';
 import { ToolModel } from './model';
+import { t } from '../i18n';
 
 export interface TilesState {
   /** net counts are stored; individual signs are derived for display */
@@ -101,22 +102,43 @@ export const tilesModel: ToolModel<TilesState> = {
     const e = tilesExpression(s);
     return { latex: e.latex, text: e.text, expr: parseExpression(`${s.xCount}x + ${s.unitCount}`) };
   },
-  describe: (s) => {
+  describe: (s, locale) => {
     if (s.layout === 'array') {
-      return { title: 'Array', lines: [`${s.rows} rows of ${s.cols} counters makes ${s.rows * s.cols} in total.`, 'Turning the rectangle shows the other factor order — the product is the same.'] };
+      return {
+        title: t('tool.tiles.describe.arrayTitle', { lng: locale }),
+        lines: [
+          t('tool.tiles.describe.arrayTotal', { lng: locale, rows: s.rows, cols: s.cols, total: s.rows * s.cols }),
+          t('tool.tiles.describe.arrayTurn', { lng: locale }),
+        ],
+      };
     }
     if (s.layout === 'groups') {
-      return { title: 'Equal groups', lines: [`${s.unitCount} counters shared into ${s.groups} groups.`, s.unitCount % s.groups === 0 ? `Each group has ${s.unitCount / s.groups}.` : `Each group would get ${s.unitCount}/${s.groups} — not a whole number.`] };
+      return {
+        title: t('tool.tiles.describe.groupsTitle', { lng: locale }),
+        lines: [
+          t('tool.tiles.describe.groupsShared', { lng: locale, count: s.unitCount, groups: s.groups }),
+          s.unitCount % s.groups === 0
+            ? t('tool.tiles.describe.groupsEach', { lng: locale, each: s.unitCount / s.groups })
+            : t('tool.tiles.describe.groupsRemainder', { lng: locale, count: s.unitCount, groups: s.groups }),
+        ],
+      };
     }
     if (s.layout === 'fraction') {
-      return { title: 'Fraction bar', lines: [`The whole is cut into ${s.pieces} equal parts.`, `${s.shaded} of them are shaded, so the fraction is ${s.shaded}/${s.pieces}.`] };
+      return {
+        title: t('tool.tiles.describe.fractionTitle', { lng: locale }),
+        lines: [
+          t('tool.tiles.describe.fractionParts', { lng: locale, pieces: s.pieces }),
+          t('tool.tiles.describe.fractionShaded', { lng: locale, shaded: s.shaded, pieces: s.pieces }),
+        ],
+      };
     }
     return {
-      title: 'Algebra tiles',
+      title: t('tool.tiles.describe.tilesTitle', { lng: locale }),
       lines: [
-        `Long tiles: ${s.xCount} (each is one x).`,
-        `Unit tiles: ${s.unitCount} (each is 1).`,
-        `Together they show ${tilesExpression(s).text}. Long and unit tiles are different sizes, so they do not combine.`,
+        t('tool.tiles.describe.longTiles', { lng: locale, count: s.xCount }),
+        t('tool.tiles.describe.unitTiles', { lng: locale, count: s.unitCount }),
+        // The expression is maths and is inserted verbatim.
+        t('tool.tiles.describe.together', { lng: locale, expression: tilesExpression(s).text }),
       ],
     };
   },

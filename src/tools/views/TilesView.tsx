@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { TilesState, arrayTotal } from '../../tools/tiles';
 
 interface Props {
@@ -18,13 +19,15 @@ const U = 16;
  * Tapping a tile selects it: +x / −x / +1 / −1 buttons add tiles to the model.
  */
 export function TilesView({ state, onAddX, onAddUnit, interactive }: Props) {
-  if (state.layout === 'array') return <ArrayView rows={state.rows} cols={state.cols} />;
-  if (state.layout === 'groups') return <GroupsView groups={state.groups} total={state.unitCount} />;
-  if (state.layout === 'fraction') return <FractionView pieces={state.pieces} shaded={state.shaded} />;
+  const { i18n } = useTranslation();
+  if (state.layout === 'array') return <ArrayView rows={state.rows} cols={state.cols} locale={i18n.language} />;
+  if (state.layout === 'groups') return <GroupsView groups={state.groups} total={state.unitCount} locale={i18n.language} />;
+  if (state.layout === 'fraction') return <FractionView pieces={state.pieces} shaded={state.shaded} locale={i18n.language} />;
   return <TilesLayout state={state} onAddX={onAddX} onAddUnit={onAddUnit} interactive={interactive} />;
 }
 
 function TilesLayout({ state, onAddX, onAddUnit, interactive }: Props) {
+  const { t, i18n } = useTranslation();
   const wrapRef = useRef<HTMLDivElement>(null);
   const posX = Math.max(0, state.xCount);
   const negX = Math.max(0, -state.xCount);
@@ -38,29 +41,29 @@ function TilesLayout({ state, onAddX, onAddUnit, interactive }: Props) {
 
   return (
     <div className="stack-sm" ref={wrapRef}>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={describeTiles(state)} data-testid="tiles-svg">
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={describeTiles(state, i18n.language)} data-testid="tiles-svg">
         {renderXRow(posX, 0, 'pos')}
         {renderXRow(negX, Math.ceil(posX / 4), 'neg')}
         {renderUnits(posU, 'pos', Math.ceil(posX / 4) + Math.ceil(negX / 4))}
         {renderUnits(negU, 'neg', Math.ceil(posX / 4) + Math.ceil(negX / 4) + Math.ceil(posU / 10))}
         {posX + negX + posU + negU === 0 && (
           <text x={W / 2} y={H / 2} textAnchor="middle" className="axis-label" style={{ fontSize: 13 }}>
-            Add tiles to build an expression
+            {t('tiles.addHint')}
           </text>
         )}
       </svg>
       {interactive && (
         <div className="btn-row" style={{ gap: 8 }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddX?.(1)} aria-label="Add one positive x tile" data-testid="add-pos-x">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddX?.(1)} aria-label={t('tiles.addPosX')} data-testid="add-pos-x">
             +x
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddX?.(-1)} aria-label="Add one negative x tile" data-testid="add-neg-x">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddX?.(-1)} aria-label={t('tiles.addNegX')} data-testid="add-neg-x">
             −x
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddUnit?.(1)} aria-label="Add one positive unit tile" data-testid="add-pos-u">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddUnit?.(1)} aria-label={t('tiles.addPosUnit')} data-testid="add-pos-u">
             +1
           </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddUnit?.(-1)} aria-label="Add one negative unit tile" data-testid="add-neg-u">
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => onAddUnit?.(-1)} aria-label={t('tiles.addNegUnit')} data-testid="add-neg-u">
             −1
           </button>
         </div>
@@ -115,14 +118,23 @@ function TilesLayout({ state, onAddX, onAddUnit, interactive }: Props) {
   }
 }
 
-function describeTiles(s: TilesState): string {
+function describeTiles(s: TilesState, locale?: string): string {
   const parts: string[] = [];
-  if (s.xCount !== 0) parts.push(`${Math.abs(s.xCount)} ${s.xCount < 0 ? 'negative ' : ''}x tile${Math.abs(s.xCount) === 1 ? '' : 's'}`);
-  if (s.unitCount !== 0) parts.push(`${Math.abs(s.unitCount)} ${s.unitCount < 0 ? 'negative ' : ''}unit tile${Math.abs(s.unitCount) === 1 ? '' : 's'}`);
+  const suffix = (n: number, base: string) => (Math.abs(n) === 1 ? base : `${base}s`);
+  const neg = (n: number) => (n < 0 ? 'negative ' : '');
+  const xCount = Math.abs(s.xCount);
+  const uCount = Math.abs(s.unitCount);
+  if (locale === 'bn') {
+    if (xCount !== 0) parts.push(`${xCount}টা ${s.xCount < 0 ? 'ঋণাত্মক ' : ''}x টাইল`);
+    if (uCount !== 0) parts.push(`${uCount}টা ${s.unitCount < 0 ? 'ঋণাত্মক ' : ''}একক টাইল`);
+    return parts.length ? `বীজগণিতের টাইল: ${parts.join(' আর ')}` : 'বীজগণিতের টাইলের জায়গা খালি';
+  }
+  if (xCount !== 0) parts.push(`${xCount} ${neg(s.xCount)}${suffix(s.xCount, 'x tile')}`);
+  if (uCount !== 0) parts.push(`${uCount} ${neg(s.unitCount)}${suffix(s.unitCount, 'unit tile')}`);
   return parts.length ? `Algebra tiles: ${parts.join(' and ')}` : 'Empty algebra tile area';
 }
 
-function ArrayView({ rows, cols }: { rows: number; cols: number }) {
+function ArrayView({ rows, cols, locale }: { rows: number; cols: number; locale?: string }) {
   const cell = 18;
   const W = Math.max(120, cols * (cell + 4) + 24);
   const H = rows * (cell + 4) + 24;
@@ -133,7 +145,7 @@ function ArrayView({ rows, cols }: { rows: number; cols: number }) {
     }
   }
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Array with ${rows} rows and ${cols} columns, ${rows * cols} counters`} data-testid="array-svg">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={locale === 'bn' ? `${rows} সারি আর ${cols} কলামের অ্যারে, ${rows * cols}টা কাউন্টার` : `Array with ${rows} rows and ${cols} columns, ${rows * cols} counters`} data-testid="array-svg">
       {out}
       <text x={W / 2} y={H - 2} textAnchor="middle" className="axis-label" style={{ fontSize: 11 }}>
         {rows} × {cols} = {arrayTotal({ rows, cols } as TilesState)}
@@ -142,13 +154,13 @@ function ArrayView({ rows, cols }: { rows: number; cols: number }) {
   );
 }
 
-function GroupsView({ groups, total }: { groups: number; total: number }) {
+function GroupsView({ groups, total, locale }: { groups: number; total: number; locale?: string }) {
   const per = Math.floor(total / groups);
   const W = 320;
   const H = 140;
   const boxW = Math.min(84, (W - 20) / groups - 6);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${total} counters shared into ${groups} groups of ${per}`} data-testid="groups-svg">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={locale === 'bn' ? `${total}টা কাউন্টার ${groups}টা দলে ভাগ, প্রতি দলে ${per}টা` : `${total} counters shared into ${groups} groups of ${per}`} data-testid="groups-svg">
       {Array.from({ length: groups }).map((_, g) => {
         const x = 10 + g * (boxW + 6);
         return (
@@ -173,13 +185,13 @@ function GroupsView({ groups, total }: { groups: number; total: number }) {
   );
 }
 
-function FractionView({ pieces, shaded }: { pieces: number; shaded: number }) {
+function FractionView({ pieces, shaded, locale }: { pieces: number; shaded: number; locale?: string }) {
   const W = 320;
   const H = 110;
   const barW = W - 40;
   const segW = barW / pieces;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Fraction bar with ${pieces} equal parts, ${shaded} shaded`} data-testid="fraction-svg">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={locale === 'bn' ? `ভগ্নাংশের বার, ${pieces}টা সমান ভাগের মধ্যে ${shaded}টা রঙ করা` : `Fraction bar with ${pieces} equal parts, ${shaded} shaded`} data-testid="fraction-svg">
       {Array.from({ length: pieces }).map((_, i) => (
         <rect
           key={i}

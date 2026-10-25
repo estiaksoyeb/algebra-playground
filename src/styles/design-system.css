@@ -254,6 +254,9 @@ textarea {
   text-decoration: none;
   font-size: var(--fs-lg);
   min-width: 0;
+  /* The brand is the only header item allowed to shrink: every button beside it keeps its
+   * full 44px tap target, so the name truncates instead of pushing a control off-screen. */
+  flex: 0 1 auto;
 }
 .brand-mark {
   width: 30px;
@@ -264,6 +267,22 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A shorter name is swapped in by the container query below, not by width alone, so it
+ * appears exactly when the header would otherwise overflow (Bengali is much wider). */
+.brand-short {
+  display: none;
+}
+.app-header {
+  container-type: inline-size;
+}
+@container (max-width: 439px) {
+  .brand-full {
+    display: none;
+  }
+  .brand-short {
+    display: inline;
+  }
 }
 
 /* Breadcrumb links are navigation, not words in a sentence: give them a real tap area. */
@@ -289,6 +308,31 @@ textarea {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  /* Header controls are fixed-size, but on a 320px phone the row may not push the page
+   * wider than the screen: the brand truncates and the save pill shrinks first. */
+  flex: none;
+}
+
+/* Narrowest phones (320px): keep every control a 44px target, drop the save label to its
+ * dot so the language switch always fits without horizontal scrolling. */
+@media (max-width: 380px) {
+  .app-header {
+    gap: var(--sp-2);
+    padding-inline: var(--sp-3);
+  }
+  .save-indicator > span:not(.dot) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .save-indicator {
+    padding: 0 10px;
+    min-width: var(--tap);
+    justify-content: center;
+  }
 }
 
 .save-indicator {
@@ -1846,4 +1890,30 @@ label.choice:has(> input[type='radio']) {
   .lesson-footer {
     display: none;
   }
+}
+
+/* ------------------------------------------------------------------ language toggle
+ * Compact switch: one pill, the target language written in its own script.
+ * It is a real 44px tap target next to the theme button, and it never wraps or shrinks
+ * when the header gets tight on a small phone.
+ */
+.lang-toggle {
+  min-width: var(--tap);
+  height: var(--tap);
+  min-height: var(--tap);
+  padding: 0 10px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.lang-toggle:hover {
+  border-color: var(--brand);
 }

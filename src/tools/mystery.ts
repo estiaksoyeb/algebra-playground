@@ -3,6 +3,7 @@
  * The expression and its total are derived from the same numbers.
  */
 import { ToolModel } from './model';
+import { t } from '../i18n';
 
 export interface MysteryState {
   value: number;
@@ -52,22 +53,30 @@ export const mysteryModel: ToolModel<MysteryState> = {
       text: s.target !== undefined ? `${coeff}${extra.replace(/ /g, ' ')} = ${s.target} (x = ${x} gives ${total})` : `${coeff}${extra} = ${total}`,
     };
   },
-  describe: (s) => {
+  describe: (s, locale) => {
     const total = mysteryTotal(s);
+    // The expression itself is maths, so it is built once and never translated.
+    const expression = `${s.copies === 1 ? 'x' : `${s.copies}x`}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''}`;
     return {
-      title: 'Mystery number',
+      title: t('tool.mystery.title', { lng: locale }),
       lines: [
-        s.reveal ? `The box (x) holds ${s.value}.` : 'The box (x) hides a number you have to find.',
         // Before the reveal nothing may state the hidden value: the boxes are the puzzle.
+        s.reveal
+          ? t('tool.mystery.holds', { lng: locale, value: s.value })
+          : t('tool.mystery.hides', { lng: locale }),
         s.copies === 1
-          ? 'There is one box.'
+          ? t('tool.mystery.oneBox', { lng: locale })
           : s.reveal
-            ? `There are ${s.copies} identical boxes, each holding the same ${s.value}.`
-            : `There are ${s.copies} identical boxes, each holding the same unknown number x.`,
+            ? t('tool.mystery.manyBoxesValue', { lng: locale, count: s.copies, value: s.value })
+            : t('tool.mystery.manyBoxes', { lng: locale, count: s.copies }),
         s.reveal
           ? `${s.copies} × ${s.value}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''} = ${total}.`
-          : `${s.copies === 1 ? 'x' : `${s.copies}x`}${s.extra ? ` ${s.extra > 0 ? '+' : '−'} ${Math.abs(s.extra)}` : ''} = ${total}, so the total is ${total} right now.`,
-        s.target !== undefined ? (total === s.target ? `The total matches the target ${s.target}. x = ${s.value}.` : `The total ${total} does not match the target ${s.target} yet.`) : 'Change x and watch the total change.',
+          : t('tool.mystery.expressionNow', { lng: locale, expression, total }),
+        s.target !== undefined
+          ? total === s.target
+            ? t('tool.mystery.matches', { lng: locale, target: s.target, value: s.value })
+            : t('tool.mystery.doesNotMatch', { lng: locale, total, target: s.target })
+          : t('tool.mystery.changeX', { lng: locale }),
       ],
     };
   },

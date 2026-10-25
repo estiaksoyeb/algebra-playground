@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LESSON_BY_ID, WORLD_BY_ID, nextLessonInOrder, prerequisitesMet } from '../content/curriculum';
+import { useTranslation } from 'react-i18next';
+import {
+  LESSON_BY_ID,
+  WORLD_BY_ID,
+  localizedConceptName,
+  localizedLesson,
+  localizedWorld,
+  nextLessonInOrder,
+  prerequisitesMet,
+} from '../content/curriculum';
 import { Exercise, Lesson } from '../content/types';
 import { ExerciseCard } from '../components/ExerciseCard';
 import { MathView as Math } from '../components/MathComp';
 import { CalmCallout, StepVisual } from '../components/StepVisual';
-import { masteryLabel } from '../engine/mastery';
+import type { MasteryState } from '../storage/repositories';
+import { t as tStatic } from '../i18n';
 import { nextActionAfterLesson, masteryProgress, pickCheckQuestions, practiceExercises } from './lessonProgress';
 import { LessonPosition, LessonShape, positionRecord, resumePosition } from './lessonResume';
 import { navigate } from './router';
@@ -22,23 +32,24 @@ const num = {
 
 type Phase = LessonPosition;
 
-const PHASES = ['Learn', 'Practise', 'Check'] as const;
-
-const SAVE_FAILED = 'Your progress could not be saved, so you are still on this step. Check storage in Settings, then tap Try again.';
-const RETRY = 'Try again';
-const RETRY_TEXT = 'Your progress could not be saved, so nothing changed on this screen. Check storage in Settings, then try again.';
+/** Phase keys are stable; the visible label is translated. Order is part of the UX. */
+const PHASES = ['learn', 'practise', 'check'] as const;
 
 export function LessonPage({ lessonId }: { lessonId: string }) {
-  const lesson = LESSON_BY_ID[lessonId];
+  const { t, i18n } = useTranslation();
   const session = useAppSession();
   const data = session.state.data;
-  if (!lesson) {
+  const source = LESSON_BY_ID[lessonId];
+  // English stays the identity of the lesson (ids, maths, answers); only its prose is
+  // swapped for the active language.
+  const lesson = source ? localizedLesson(source.id, i18n.language) : undefined;
+  if (!source || !lesson) {
     return (
-      <Page title="Lesson not found">
-        <EmptyState level={1} icon={<IconBook />} title="That lesson does not exist">
-          <p>It may have been renamed. Browse the full path instead.</p>
+      <Page title={t('lesson.notFoundTitle')}>
+        <EmptyState level={1} icon={<IconBook />} title={t('lesson.notFoundTitle')}>
+          <p>{t('lesson.notFoundBody')}</p>
           <a className="btn" href="#/learn">
-            Back to Learn
+            {t('app.backToLearn')}
           </a>
         </EmptyState>
       </Page>
@@ -50,6 +61,10 @@ export function LessonPage({ lessonId }: { lessonId: string }) {
 type Session = ReturnType<typeof useAppSession>;
 
 function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Session; data: Session['state']['data'] }) {
+  const { t, i18n } = useTranslation();
+  const SAVE_FAILED = t('lesson.saveFailed');
+  const RETRY = t('lesson.tryAgain');
+  const RETRY_TEXT = t('lesson.saveFailedShort');
   const record = data.lessonStates[lesson.id];
   const progress = masteryProgress(lesson, data.attempts, record);
   const practice = practiceExercises(lesson);
@@ -225,10 +240,10 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
   // ---- Not ready yet --------------------------------------------------------
   if (status === 'loading' || (status === 'ready' && !position)) {
     return (
-      <Page title="Lesson">
+      <Page title={t('lesson.title')}>
         <div className="loading-screen" role="status">
           <div className="spinner" aria-hidden="true" />
-          <p>Loading your lesson…</p>
+          <p>{t('lesson.loadingLesson')}</p>
         </div>
       </Page>
     );
@@ -237,17 +252,17 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
     // Never show (or save) a default position when the saved one could not be read:
     // the learner's real progress might be exactly what failed to load.
     return (
-      <Page title="Lesson">
+      <Page title={t('lesson.title')}>
         <div className="card stack" role="alert">
-          <h1>We could not load your saved progress</h1>
-          <p>Nothing has been changed or overwritten. Reload to try again; if it keeps happening, your browser may be blocking storage (see Settings).</p>
+          <h1>{t('lesson.loadFailedTitle')}</h1>
+          <p>{t('lesson.loadFailedBody')}</p>
           {session.state.loadError && <p className="small muted">{session.state.loadError}</p>}
           <div className="btn-row">
             <button type="button" className="btn" onClick={() => window.location.reload()}>
-              Reload
+              {t('app.reload')}
             </button>
             <a className="btn btn-secondary" href="#/settings">
-              Open Settings
+              {t('lesson.openSettings')}
             </a>
           </div>
         </div>
@@ -255,7 +270,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
     );
   }
 
-  const world = WORLD_BY_ID[lesson.world];
+  const world = localizedWorld(WORLD_BY_ID[lesson.world], i18n.language);
   const teachCount = lesson.steps.length;
   const totalUnits = teachCount + practice.length + checks.length;
   const doneUnits =
@@ -274,11 +289,11 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
           footer above the bottom navigation, so it never covers the last control. */}
       <div className="lesson-shell" data-docked-actions={position.kind === 'practice' || position.kind === 'check' ? '' : undefined}>
         <header className="lesson-header">
-          <nav className="breadcrumb" aria-label="Breadcrumb">
-            <a href="#/learn">Learn</a>
+          <nav className="breadcrumb" aria-label={t('lesson.breadcrumb')}>
+            <a href="#/learn">{t('nav.learn')}</a>
             <span aria-hidden="true">/</span>
             <span>
-              World {world.number}: {world.title}
+              {t('learn.worldOne', { number: world.number })}: {world.title}
             </span>
           </nav>
           <div>
@@ -290,10 +305,10 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               <div className="row" style={{ gap: 8 }}>
                 {PHASES.map((p, i) => (
                   <span key={p} className={`pill ${i === phaseIndex ? 'pill-brand' : i < phaseIndex ? 'pill-success' : ''}`}>
-                    {p}
+                    {t(`lesson.phase.${p}`)}
                   </span>
                 ))}
-                {record?.completed && <span className="pill pill-success">Completed</span>}
+                {record?.completed && <span className="pill pill-success">{t('learn.status.completed')}</span>}
               </div>
               <div
                 className="progress-track"
@@ -301,7 +316,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 aria-valuemin={0}
                 aria-valuemax={totalUnits}
                 aria-valuenow={doneUnits}
-                aria-label="Lesson progress"
+                aria-label={t('lesson.progressLabel')}
               >
                 <div style={{ width: `${num.round((doneUnits / totalUnits) * 100)}%` }} />
               </div>
@@ -310,8 +325,8 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
           {locked && (
             <div className="callout callout-watch-out" role="note">
               <div>
-                <strong>This lesson builds on earlier ones</strong>
-                You can carry on — the hints will fill in any gaps, and each lesson links to its refresher.
+                <strong>{t('lesson.prereqHeading')}</strong>
+                {t('lesson.prereqBody')}
               </div>
             </div>
           )}
@@ -328,13 +343,14 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
         </header>
 
         <div ref={liveRef} aria-live="polite" className="sr-only">
-          {position.kind === 'done' ? 'Lesson complete' : ''}
+          {position.kind === 'done' ? t('lesson.completed') : ''}
         </div>
 
         {position.kind === 'teach' && step && (
           <section className="card lesson-step" key={`s${position.step}`}>
             <p className="small muted mb-0" data-testid="step-indicator">
-              Step {position.step + 1} of {teachCount} · {step.type === 'explore' ? 'Explore' : step.type === 'check' ? 'Notice' : 'Learn'}
+              {t('lesson.stepOf', { current: position.step + 1, total: teachCount })} ·{' '}
+              {step.type === 'explore' ? t('lesson.stepKind.explore') : step.type === 'check' ? t('lesson.stepKind.notice') : t('lesson.stepKind.learn')}
             </p>
             <h2>{step.title}</h2>
             <p className="step-body">{step.body}</p>
@@ -353,7 +369,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 disabled={busyNow}
                 data-testid="prev-step"
               >
-                {position.step > 0 ? 'Back' : 'All lessons'}
+                {position.step > 0 ? t('lesson.back') : t('lesson.allLessons')}
               </button>
               <button
                 type="button"
@@ -362,7 +378,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 disabled={busyNow}
                 data-testid="next-step"
               >
-                {position.step < teachCount - 1 ? 'Next step' : `Start practising (${practice.length})`}
+                {position.step < teachCount - 1 ? t('lesson.nextStep') : t('lesson.startPractising', { count: practice.length })}
               </button>
             </div>
           </section>
@@ -372,11 +388,11 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
           <div className="stack" key={`p${position.index}`}>
             <div className="row-between">
               <p className="small muted mb-0" data-testid="phase-indicator">
-                Practice {position.index + 1} of {practice.length}
+                {t('lesson.questionOf', { current: position.index + 1, total: practice.length })}
               </p>
               {progress.evidenceReady && (
                 <span className="pill pill-success">
-                  Enough evidence · {progress.independent}/{num.max(progress.minIndependent, progress.independent)}
+                  {t('lesson.enoughEvidence', { done: progress.independent, needed: num.max(progress.minIndependent, progress.independent) })}
                 </span>
               )}
             </div>
@@ -393,7 +409,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               onHint={() =>
                 void latest.current.progressLesson(lesson.id, { hintCounts: { [practice[position.index].id]: (hints[practice[position.index].id] ?? 0) + 1 } }).then((ok) => {
                   if (ok) setHints((h) => ({ ...h, [practice[position.index].id]: (h[practice[position.index].id] ?? 0) + 1 }));
-                  else setSaveError('That hint could not be saved, so it was not shown. Try again.');
+                  else setSaveError(t('lesson.hintSaveFailed'));
                 })
               }
             />
@@ -404,7 +420,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 onClick={() => (position.index > 0 ? void go({ kind: 'practice', index: position.index - 1 }) : void go({ kind: 'teach', step: teachCount - 1 }))}
                 disabled={busyNow}
               >
-                Back
+                {t('lesson.back')}
               </button>
               <button
                 type="button"
@@ -413,7 +429,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 disabled={busyNow}
                 data-testid="next-exercise"
               >
-                {position.index < practice.length - 1 ? 'Next exercise' : 'Go to the check'}
+                {position.index < practice.length - 1 ? t('lesson.nextExercise') : t('lesson.goToCheck')}
               </button>
               {/* Full-width secondary action on its own row, so the two main buttons keep
                   their natural size instead of squeezing labels onto two lines. */}
@@ -423,7 +439,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 onClick={() => (position.index < practice.length - 1 ? void go({ kind: 'practice', index: position.index + 1 }) : void go({ kind: 'check', index: 0 }))}
                 disabled={busyNow}
               >
-                Skip for now
+                {t('lesson.skipForNow')}
               </button>
             </div>
           </div>
@@ -431,10 +447,10 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
 
         {position.kind === 'check' && checks.length === 0 && (
           <section className="card stack">
-            <h2>Ready to finish</h2>
-            <p>This lesson has no separate check — your practice answers above are the evidence.</p>
+            <h2>{t('lesson.readyToFinish')}</h2>
+            <p>{t('lesson.noCheckBody')}</p>
             <button type="button" className="btn" onClick={() => void finishLesson()} disabled={busyNow} data-testid="finish-lesson">
-              Mark lesson complete
+              {t('lesson.markComplete')}
             </button>
           </section>
         )}
@@ -442,12 +458,12 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
         {position.kind === 'check' && checks[position.index] && (
           <div className="stack" key={`c${position.index}`}>
             <p className="small muted mb-0" data-testid="phase-indicator">
-              Check {position.index + 1} of {checks.length}
+              {t('lesson.questionOf', { current: position.index + 1, total: checks.length })}
             </p>
             <div className="callout callout-tip" role="note">
               <div>
-                <strong>Mastery check</strong>
-                These questions come without hints. Answer them yourself — that is what proves the idea has stuck.
+                <strong>{t('lesson.masteryCheckHeading')}</strong>
+                {t('lesson.masteryCheckBody')}
               </div>
             </div>
             <ExerciseCard
@@ -462,7 +478,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
               onHint={() => undefined}
               rehearse={{
                 stored: rehearsal[checks[position.index].id],
-                suggestion: rehearsalText(checks[position.index]),
+                suggestion: rehearsalText(checks[position.index], t),
                 onAnswer: (answer) => {
                   // Rehearsal memory only: it is session state, never an attempt or mastery
                   // evidence, so a relieved learner cannot "prove" the idea to the engine.
@@ -472,18 +488,16 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 },
               }}
               noHints
-              submitLabel="Check"
+              submitLabel={t('tool.check')}
             />
             {checkNotProven && (
               <div className="feedback feedback-hint" role="status" data-testid="check-not-proven">
-                <strong role="status">Not quite proven yet.</strong> One of the check questions was answered with help, so it does not count as evidence. Answer
-                both without a hint to finish, or come back to the check later.
+                <strong role="status">{t('lesson.notProvenHeading')}</strong> {t('lesson.notProvenHelped')}
               </div>
             )}
             {position.index === checks.length - 1 && checkAnswers[checks[position.index].id] && !checkCleared(checks[position.index].id) && (
               <div className="feedback feedback-hint" role="status" data-testid="check-not-proven">
-                <strong role="status">Not quite proven yet.</strong> One of the check questions does not count as evidence yet. Answer
-                both correctly, without help, to finish — or come back to the check after more practice.
+                <strong role="status">{t('lesson.notProvenHeading')}</strong> {t('lesson.notProvenWrong')}
               </div>
             )}
             <div className="lesson-footer">
@@ -493,11 +507,11 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                 onClick={() => (position.index > 0 ? void go({ kind: 'check', index: position.index - 1 }) : void go({ kind: 'practice', index: practice.length - 1 }))}
                 disabled={busyNow}
               >
-                Back
+                {t('lesson.back')}
               </button>
               {!checkAnswers[checks[position.index].id] && (
                 <button type="button" className="btn btn-ghost" onClick={() => void go({ kind: 'done' })} disabled={busyNow}>
-                  Try the check later
+                  {t('lesson.tryCheckLater')}
                 </button>
               )}
               {checkAnswers[checks[position.index].id] && checkCleared(checks[position.index].id) && (
@@ -508,7 +522,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
                   disabled={busyNow}
                   data-testid={position.index < checks.length - 1 ? 'next-check' : 'finish-lesson'}
                 >
-                  {position.index < checks.length - 1 ? 'Next question' : 'Finish lesson'}
+                  {position.index < checks.length - 1 ? t('exercise.nextQuestion') : t('lesson.finish')}
                 </button>
               )}
             </div>
@@ -543,7 +557,7 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
       const granted = await latest.current.passMasteryCheck(lesson.id);
       if (!granted) {
         // The lesson itself is saved; only the mastery decision failed. Say exactly that.
-        setSaveError('Your lesson was saved. The mastery result could not be stored — Try again stores it from the answers already recorded.');
+        setSaveError(t('lesson.masterySaveFailed'));
       }
       setPosition({ kind: 'done' });
     } finally {
@@ -580,53 +594,65 @@ function LessonPlayer({ lesson, session, data }: { lesson: Lesson; session: Sess
  * A rehearsal prompt for a check question: the same idea with one number changed where
  * that is possible, otherwise a generic nudge. It deliberately never reveals the answer.
  */
-export function rehearsalText(ex: Exercise): string {
+/**
+ * Mastery label in the active language. The English `masteryLabel` remains the canonical
+ * wording; this only maps its state to a translated string.
+ */
+export function localizedMasteryLabel(state: MasteryState, translate: (key: string) => string): string {
+  return translate(`mastery.${state}`);
+}
+
+export function rehearsalText(ex: Exercise, translate?: (key: string, options?: Record<string, unknown>) => string): string {
+  const tr = translate ?? ((key: string, options?: Record<string, unknown>) => tStatic(key, options));
   const n = /\d+/.exec(ex.prompt ?? '');
   if (n) {
     const v = Number(n[0]);
-    return `Try the same question with a different number first, e.g. instead of ${v} use ${v + 1}. Nothing you type here is graded.`;
+    // The suggested number is arithmetic, so it is always ASCII — even in Bengali prose.
+    return tr('exercise.rehearsalNumber', { value: v, next: v + 1 });
   }
-  return 'Try one simpler version of this question first. Nothing you type here is graded or counts as evidence.';
+  return tr('exercise.rehearsalGeneric');
 }
 
 function CompletionPanel({ lesson, data, onReview, disabled }: { lesson: Lesson; data: Session['state']['data']; onReview: () => void; disabled?: boolean }) {
+  const { t, i18n } = useTranslation();
   const action = nextActionAfterLesson({ lesson, attempts: data.attempts, nextLessonId: nextLessonInOrder(lesson.id)?.id });
-  const ws = WORLD_BY_ID[lesson.world];
-  const concepts = lesson.conceptIds.map((c) => ({ id: c, m: data.mastery[c] }));
+  const ws = localizedWorld(WORLD_BY_ID[lesson.world], i18n.language);
+  const concepts = lesson.conceptIds.map((c) => ({ id: c, name: localizedConceptName(c, i18n.language, lesson), m: data.mastery[c] }));
   return (
     <section className="card stack" data-testid="lesson-complete">
       <div className="stack-sm">
-        <span className="pill pill-success">Lesson complete</span>
-        <h2 style={{ marginBottom: 0 }}>Nice work: {lesson.title}</h2>
-        <p className="muted mb-0">{ws.title} · mastery is judged from evidence, not clicks.</p>
+        <span className="pill pill-success">{t('lesson.completed')}</span>
+        <h2 style={{ marginBottom: 0 }}>{t('lesson.completedHeading', { title: lesson.title })}</h2>
+        <p className="muted mb-0">{t('lesson.masteryNote', { world: ws.title })}</p>
       </div>
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }} className="stack-sm">
         {concepts.map((c) => (
           <li key={c.id} className="row-between small">
-            <span>{c.id.replace(/-/g, ' ')}</span>
+            <span>{c.name}</span>
             <span className={`pill ${c.m?.state === 'established' ? 'pill-success' : c.m?.state === 'needs-review' ? 'pill-warning' : ''}`}>
-              {c.m ? masteryLabel(c.m.state) : 'No evidence yet'}
+              {c.m ? localizedMasteryLabel(c.m.state, t) : t('lesson.noEvidence')}
             </span>
           </li>
         ))}
       </ul>
       <div className="feedback feedback-info" role="status">
-        <strong>{action.label}</strong> {action.detail}
+        <strong>{t(`nextAction.${action.kind}.label`, { defaultValue: action.label })}</strong>{' '}
+        {t(`nextAction.${action.kind}.detail`, { defaultValue: action.detail })}
       </div>
       <div className="btn-row">
         {action.kind === 'continue-lesson' && action.lessonId && (
           <a className="btn" href={`#/learn/${action.lessonId}`} data-testid="next-lesson-link">
-            {action.label}
+            {t('nextAction.continue-lesson.label', { defaultValue: action.label })}
           </a>
         )}
         <a className="btn btn-secondary" href="#/learn">
-          Back to the path
+          {t('lesson.backToPath')}
         </a>
         <button type="button" className="btn btn-ghost" onClick={onReview} disabled={disabled}>
-          Practise again
+          {t('lesson.practiseAgain')}
         </button>
         <a className="btn btn-ghost" href="#/progress">
-          See progress
+          {t('lesson.seeProgress')}
         </a>
       </div>{' '}
     </section>

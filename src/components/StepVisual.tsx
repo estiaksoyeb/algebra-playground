@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useTranslation, Trans } from 'react-i18next';
 import { LessonStep } from '../content/types';
 import { ToolId } from '../tools/types';
 import { ToolStateMap, stateFromRaw } from '../tools/toolState';
 import { ToolWorkspaceEmbedded } from '../tools/ToolWorkspaceEmbedded';
 
-const CALLOUT_HEADING = { tip: 'Tip', why: 'Why this works', 'watch-out': 'Watch out' } as const;
+const CALLOUT_KEYS = { tip: 'callout.tip', why: 'callout.why', 'watch-out': 'callout.watchOut' } as const;
 
 export function StepVisual({ visual }: { visual: NonNullable<LessonStep['visual']> }) {
   const tool = visual.tool as ToolId;
@@ -17,10 +18,11 @@ export function StepVisual({ visual }: { visual: NonNullable<LessonStep['visual'
 }
 
 export function CalmCallout({ callout }: { callout: NonNullable<LessonStep['callout']> }) {
+  const { t } = useTranslation();
   return (
     <div className={`callout callout-${callout.kind}`} role="note">
       <div>
-        <strong>{CALLOUT_HEADING[callout.kind]}</strong>
+        <strong>{t(CALLOUT_KEYS[callout.kind])}</strong>
         {callout.text}
       </div>
     </div>
@@ -31,7 +33,7 @@ export function CalmCallout({ callout }: { callout: NonNullable<LessonStep['call
 export function OpenInPlayground({ tool }: { tool: ToolId }) {
   return (
     <p className="small muted mb-0">
-      Want to experiment? <a href={`#/playground/${tool}`}>Open this tool in the playground</a>.
+      <Trans i18nKey="callout.openInPlayground" components={{ a: <a href={`#/playground/${tool}`} /> }} />
     </p>
   );
 }

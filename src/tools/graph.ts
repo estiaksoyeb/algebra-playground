@@ -7,6 +7,7 @@
  */
 import { Rational } from '../math/rational';
 import { ToolModel } from './model';
+import { t } from '../i18n';
 
 export type GraphMode = 'explore' | 'line' | 'quadratic' | 'system';
 
@@ -192,27 +193,49 @@ export const graphModel: ToolModel<GraphState> = {
     }
     return { latex: `(${fmt(g.point.x)},\\, ${fmt(g.point.y)})`, text: `Point (${fmt(g.point.x)}, ${fmt(g.point.y)})` };
   },
-  describe: (g) => {
+  describe: (g, locale) => {
     if (g.mode === 'explore') {
-      return { title: 'Coordinate plane', lines: [`The point is at (${fmt(g.point.x)}, ${fmt(g.point.y)}).`, 'x is horizontal, y is vertical. Move right for positive x, up for positive y.'] };
+      return {
+        title: t('tool.graph.describe.pointTitle', { lng: locale }),
+        lines: [
+          t('tool.graph.describe.pointAt', { lng: locale, x: fmt(g.point.x), y: fmt(g.point.y) }),
+          t('tool.graph.describe.axes', { lng: locale }),
+        ],
+      };
     }
     if (g.mode === 'line' || g.mode === 'system') {
-      const lines = [`The line y = ${xTerm(g.m)}${constTerm(g.b)} has slope ${fmt(g.m)} and crosses the y-axis at ${fmt(g.b)}.`];
+      const lines = [
+        t('tool.graph.describe.lineSummary', {
+          lng: locale,
+          equation: `y = ${xTerm(g.m)}${constTerm(g.b)}`,
+          slope: fmt(g.m),
+          intercept: fmt(g.b),
+        }),
+      ];
       if (g.mode === 'system') {
         const s = systemSolution(g);
-        lines.push(s ? `The two lines cross at (${fmt(s.x)}, ${fmt(s.y)}) — that pair satisfies both equations.` : 'The lines are parallel, so there is no pair satisfying both.');
+        lines.push(
+          s
+            ? t('tool.graph.describe.crossAt', { lng: locale, x: fmt(s.x), y: fmt(s.y) })
+            : t('tool.graph.describe.parallel', { lng: locale }),
+        );
       }
-      return { title: 'Straight line', lines };
+      return { title: t('tool.graph.describe.lineTitle', { lng: locale }), lines };
     }
     const roots = quadraticRoots(g);
     const vertex = quadraticVertex(g);
     return {
-      title: 'Parabola',
+      title: t('tool.graph.describe.parabolaTitle', { lng: locale }),
       lines: [
-        `${quadraticText(g)}.`,
-        vertex ? `Its turning point is (${fmt(vertex.x)}, ${fmt(vertex.y)}).` : 'A straight line, not a parabola.',
-        roots.length ? `It crosses the x-axis at x = ${roots.map(fmt).join(' and ')}.` : 'It does not cross the x-axis.',
-        'A positive leading coefficient opens upward; a negative one opens downward.',
+        // The equation is maths: inserted verbatim, never translated.
+        t('tool.graph.describe.equation', { lng: locale, equation: quadraticText(g) }),
+        vertex
+          ? t('tool.graph.describe.turningPoint', { lng: locale, x: fmt(vertex.x), y: fmt(vertex.y) })
+          : t('tool.graph.describe.notParabola', { lng: locale }),
+        roots.length
+          ? t('tool.graph.describe.crosses', { lng: locale, roots: roots.map(fmt).join(', ') })
+          : t('tool.graph.describe.neverCrosses', { lng: locale }),
+        t('tool.graph.describe.opening', { lng: locale }),
       ],
     };
   },

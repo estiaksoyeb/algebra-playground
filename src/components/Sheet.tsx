@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useId, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface SheetProps {
   open: boolean;
@@ -15,6 +16,7 @@ interface SheetProps {
  * while open. Body content is rendered as normal React children (no raw HTML).
  */
 export function Sheet({ open, title, onClose, children, footer }: SheetProps) {
+  const { t } = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -66,8 +68,8 @@ export function Sheet({ open, title, onClose, children, footer }: SheetProps) {
           <h2 id={titleId} style={{ margin: 0, fontSize: 'var(--fs-lg)' }}>
             {title}
           </h2>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close dialog">
-            Close
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} aria-label={t('sheet.close')}>
+            {t('sheet.closeLabel')}
           </button>
         </div>
         {children}

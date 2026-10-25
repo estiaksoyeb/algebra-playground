@@ -1,11 +1,19 @@
 import { useMemo, useState } from 'react';
-import { CURRICULUM, LESSON_ORDER, WORLD_BY_ID, lessonsInWorld, prerequisitesMet } from '../content/curriculum';
+import { useTranslation } from 'react-i18next';
+import {
+  CURRICULUM,
+  LESSON_ORDER,
+  localizedLessonsInWorld,
+  localizedWorld,
+  prerequisitesMet,
+} from '../content/curriculum';
 import { Lesson } from '../content/types';
 import { WorldIcon } from '../components/icons';
 import { Page } from './Shell';
 import { useAppSession } from './useAppSession';
 
 function LessonRow({ lesson, state, locked, current }: { lesson: Lesson; state: 'done' | 'todo' | 'current'; locked: boolean; current: boolean }) {
+  const { t } = useTranslation();
   return (
     <li>
       <a
@@ -20,21 +28,23 @@ function LessonRow({ lesson, state, locked, current }: { lesson: Lesson; state: 
         <span className="lesson-card-body">
           <span className="lesson-card-title">{lesson.title}</span>
           <span className="lesson-card-meta">
-            <span className="lesson-meta-item">{lesson.estimatedMinutes} min</span>
-            <span className="lesson-meta-item">{lesson.steps.length} steps</span>
-            <span className="lesson-meta-item">{lesson.exercises.length} exercises</span>
+            <span className="lesson-meta-item">{t('lessonMeta.minutes', { count: lesson.estimatedMinutes })}</span>
+            <span className="lesson-meta-item">{t('lessonMeta.steps', { count: lesson.steps.length })}</span>
+            <span className="lesson-meta-item">{t('lessonMeta.exercises', { count: lesson.exercises.length })}</span>
           </span>
-          {locked && (
-            <span className="lesson-card-note">Finish the earlier lesson first — you can still open it.</span>
-          )}
+          {locked && <span className="lesson-card-note">{t('learn.lockedNoteShort')}</span>}
         </span>
-        <span className="sr-only">{state === 'done' ? 'Completed' : locked ? 'Not ready yet' : ''}</span>
+        <span className="sr-only">
+          {state === 'done' ? t('learn.status.completed') : locked ? t('learn.lockedShort') : ''}
+        </span>
       </a>
     </li>
   );
 }
 
 export function LearnMapPage() {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
   const session = useAppSession();
   const data = session.state.data;
   const completed = useMemo(
@@ -63,20 +73,21 @@ export function LearnMapPage() {
     });
 
   return (
-    <Page title="Learn">
+    <Page title={t('learn.title')}>
       <header style={{ marginBottom: 'var(--sp-4)' }}>
-        <h1>Your learning path</h1>
-        <p className="muted">
-          Seven worlds, from counting to graphs. Each lesson is short: read, try the visual, practise, then prove it with a quick check.
-        </p>
+        <h1>{t('learn.heading')}</h1>
+        <p className="muted">{t('learn.intro')}</p>
         <div className="progress-legend small muted">
-          <span aria-hidden="true">✓</span> completed · <span aria-hidden="true">▶</span> next up · numbers are lesson order
+          <span aria-hidden="true">✓</span> {t('learn.legendCompleted')} · <span aria-hidden="true">▶</span>{' '}
+          {t('learn.legendNext')} · {t('learn.legendNumbers')}
         </div>
       </header>
-      {worlds.map((world) => {
-        const lessons = lessonsInWorld(world.id);
+      {worlds.map((source) => {
+        const world = localizedWorld(source, lang);
+        const lessons = localizedLessonsInWorld(world.id, lang);
         const done = lessons.filter((l) => completed.has(l.id)).length;
         const isOpen = expanded.has(world.id);
+        const remaining = lessons.length - done;
         return (
           <section
             key={world.id}
@@ -92,7 +103,8 @@ export function LearnMapPage() {
               </div>
               <div className="world-heading">
                 <h2 id={`world-${world.id}`} className="world-title">
-                  <span className="world-number">World {world.number}</span>
+                  {/* The world number stays an ASCII numeral in every language. */}
+                  <span className="world-number">{t('learn.worldOne', { number: world.number })}</span>
                   <span className="world-name">{world.title}</span>
                 </h2>
                 <p className="world-tagline">{world.tagline}</p>
@@ -100,7 +112,7 @@ export function LearnMapPage() {
               <div className="world-controls">
                 <span className="world-count">
                   {done}/{lessons.length}
-                  <span className="sr-only"> lessons complete</span>
+                  <span className="sr-only"> {t('learn.lessonsCompleteAria')}</span>
                 </span>
                 <button
                   type="button"
@@ -109,7 +121,7 @@ export function LearnMapPage() {
                   aria-controls={`world-list-${world.id}`}
                   onClick={() => toggleWorld(world.id)}
                 >
-                  {isOpen ? 'Hide lessons' : 'Show lessons'}
+                  {isOpen ? t('learn.hideLessons') : t('learn.showLessons')}
                 </button>
               </div>
             </div>
@@ -129,8 +141,7 @@ export function LearnMapPage() {
               </ul>
             ) : (
               <p className="world-summary">
-                {done === lessons.length ? 'All lessons complete.' : `${lessons.length - done} lesson${lessons.length - done === 1 ? '' : 's'} to go.`}{' '}
-                {WORLD_BY_ID[world.id]?.description}
+                {done === lessons.length ? t('learn.allComplete') : t('learn.toGo', { count: remaining })} {world.description}
               </p>
             )}
           </section>

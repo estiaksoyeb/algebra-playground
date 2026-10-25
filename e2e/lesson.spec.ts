@@ -124,11 +124,11 @@ test.describe('completing a lesson', () => {
   test('a reload in the middle of practice comes back to the same exercise', async ({ freshPage: page }) => {
     await reachPractice(page);
     await page.getByTestId('next-exercise').click();
-    await expect(page.getByTestId('phase-indicator')).toHaveText('Practice 2 of 4');
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Question 2 of 4');
     await expect.poll(async () => storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'practice', index: 1, currentStep: 2 });
 
     await page.reload();
-    await expect(page.getByTestId('phase-indicator')).toHaveText('Practice 2 of 4');
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Question 2 of 4');
     expect(await storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'practice', index: 1 });
   });
 
@@ -139,7 +139,7 @@ test.describe('completing a lesson', () => {
     await expect.poll(async () => storedLessonState(page, 'w1-l1-counting')).toMatchObject({ phase: 'check', index: 0 });
 
     await page.reload();
-    await expect(page.getByTestId('phase-indicator')).toHaveText('Check 1 of 2');
+    await expect(page.getByTestId('phase-indicator')).toHaveText('Question 1 of 2');
     await expect(page.getByText('Mastery check')).toBeVisible();
   });
 

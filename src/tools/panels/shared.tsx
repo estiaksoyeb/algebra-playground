@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 const num = { round: (n: number) => globalThis.Math.round(n), abs: (n: number) => globalThis.Math.abs(n), max: (a: number, b: number) => globalThis.Math.max(a, b), min: (a: number, b: number) => globalThis.Math.min(a, b) };
 
@@ -19,6 +20,7 @@ export function Stepper({
   label: string;
   format?: (v: number) => string;
 }) {
+  const { t } = useTranslation();
   const clamp = (v: number) => {
     let n = num.round(v * 1000) / 1000;
     if (min !== undefined) n = num.max(min, n);
@@ -30,11 +32,11 @@ export function Stepper({
     <div className="row stepper-row">
       <span className="field-label">{label}</span>
       <div className="stepper">
-        <button type="button" onClick={() => onChange(clamp(value - step))} aria-label={`Decrease ${label}`}>
+        <button type="button" onClick={() => onChange(clamp(value - step))} aria-label={t('tool.decrease', { label })}>
           −
         </button>
         <output aria-live="polite">{format(value)}</output>
-        <button type="button" onClick={() => onChange(clamp(value + step))} aria-label={`Increase ${label}`}>
+        <button type="button" onClick={() => onChange(clamp(value + step))} aria-label={t('tool.increase', { label })}>
           +
         </button>
       </div>
@@ -58,10 +60,11 @@ export function ToolHeader({ title, description, children, level = 1 }: { title:
 }
 
 export function EquationStrip({ latex, label, children }: { latex: ReactNode; label?: string; children?: ReactNode }) {
+  const { t } = useTranslation();
   return (
     <div className="equation-strip" aria-live="polite">
       <div className="stack-sm" style={{ gap: 0, minWidth: 0, flex: 1 }}>
-        <span className="equation-strip-label">{label ?? 'Equation'}</span>
+        <span className="equation-strip-label">{label ?? t('tool.equation')}</span>
         <div className="math-display" style={{ padding: 0 }}>
           {latex}
         </div>
@@ -72,16 +75,18 @@ export function EquationStrip({ latex, label, children }: { latex: ReactNode; la
 }
 
 export function ToolControls({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   return (
-    <section className="card stack" aria-label="Controls">
+    <section className="card stack" aria-label={t('tool.controls')}>
       {children}
     </section>
   );
 }
 
 export function DescriptionList({ title, lines }: { title: string; lines: string[] }) {
+  const { t } = useTranslation();
   return (
-    <section className="card" aria-label="Explanation">
+    <section className="card" aria-label={t('tool.explanation')}>
       <h3 style={{ fontSize: 'var(--fs-md)', marginBottom: 'var(--sp-2)' }}>{title}</h3>
       <ul style={{ margin: 0, paddingLeft: 18 }} className="small">
         {lines.map((l, i) => (

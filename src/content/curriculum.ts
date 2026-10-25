@@ -1,4 +1,4 @@
-import { CONTENT_VERSION, Curriculum, Lesson, World } from './types';
+import { Concept, CONTENT_VERSION, Curriculum, Lesson, World } from './types';
 import { CONCEPTS, WORLDS } from './concepts';
 import { WORLD1_LESSONS } from './lessons/world1';
 import { WORLD2_LESSONS } from './lessons/world2';
@@ -140,4 +140,58 @@ export function validateCurriculum(c: Curriculum = CURRICULUM): CurriculumIssue[
   }
 
   return issues;
+}
+
+/* ------------------------------------------------------------------ localisation
+ * The exports above are the English source of truth and stay untouched. Screens that
+ * render prose call the helpers below instead, which overlay a translation (if one
+ * exists) and fall back to English field by field. Ids, maths, answers, choices and
+ * visual states are never translated, so grading and tool behaviour cannot drift with
+ * the UI language.
+ */
+import { localizeLesson, worldProse, conceptProse } from '../i18n/curriculum';
+
+export function localizedLesson(lessonId: string, locale: string): Lesson | undefined {
+  const lesson = LESSON_BY_ID[lessonId];
+  return lesson ? localizeLesson(lesson, locale) : undefined;
+}
+
+export function localizedLessonsInWorld(worldId: World['id'], locale: string): Lesson[] {
+  return lessonsInWorld(worldId).map((l) => localizeLesson(l, locale));
+}
+
+export function localizedWorld(world: World, locale: string): World {
+  const prose = worldProse(world, locale);
+  return { ...world, title: prose.title, tagline: prose.tagline, description: prose.description };
+}
+
+/**
+ * A concept's display name, for screens that only hold its id (lesson completion, review
+ * lists). Falls back to the English concept, then to a humanised id, so it never shows a
+ * raw key.
+ */
+export function localizedConceptName(conceptId: string, locale: string, fallbackLesson?: { conceptIds: string[] }): string {
+  const concept = CONCEPT_BY_ID[conceptId];
+  if (concept) return localizedConcept(concept, locale).name;
+  if (fallbackLesson) {
+    // The lesson's own order is the best guide to which concept a missing id meant.
+    const index = fallbackLesson.conceptIds.indexOf(conceptId);
+    if (index >= 0) return conceptId.replace(/-/g, ' ');
+  }
+  return conceptId.replace(/-/g, ' ');
+}
+
+export function localizedConcept(concept: Concept, locale: string): Concept {
+  const prose = conceptProse(concept, locale);
+  return { ...concept, name: prose.name, shortName: prose.shortName, description: prose.description };
+}
+
+/** All lessons, translated (used by the progress map and review lists). */
+export function localizedCurriculum(locale: string): Curriculum {
+  return {
+    ...CURRICULUM,
+    worlds: CURRICULUM.worlds.map((w) => localizedWorld(w, locale)),
+    lessons: CURRICULUM.lessons.map((l) => localizeLesson(l, locale)),
+    concepts: CURRICULUM.concepts.map((c) => localizedConcept(c, locale)),
+  };
 }

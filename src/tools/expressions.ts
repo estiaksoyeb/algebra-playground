@@ -2,6 +2,7 @@
  * Expression tools: eval / simplify / area model. One pure parse-and-derive core,
  * with explicit unsupported cases (division by variables, non-polynomial functions).
  */
+import { t } from '../i18n';
 import { tryParse, parseExpression, variablesOf, Expr } from '../math/expression';
 import { evaluateExact, toLatex, toPlainText } from '../math/evaluate';
 import { polynomialEquivalence, polyToLatex, polyToText, toPolynomial } from '../math/polynomial';
@@ -196,16 +197,23 @@ function safePoly(e: Expr) {
   }
 }
 
-export function compareExpressions(a: string, b: string): { result: 'yes' | 'no' | 'unsupported' | 'error'; message: string } {
+export function compareExpressions(
+  a: string,
+  b: string,
+  locale?: string,
+): { result: 'yes' | 'no' | 'unsupported' | 'error'; message: string } {
   const pa = tryParse(a);
   const pb = tryParse(b);
-  if (!pa.ok) return { result: 'error', message: `First expression: ${pa.error.message}` };
-  if (!pb.ok) return { result: 'error', message: `Second expression: ${pb.error.message}` };
+  // Messages are translated; the parse error and expressions inside stay verbatim ASCII.
+  if (!pa.ok) return { result: 'error', message: t('tool.area.compareFirstError', { lng: locale, error: pa.error.message }) };
+  if (!pb.ok) return { result: 'error', message: t('tool.area.compareSecondError', { lng: locale, error: pb.error.message }) };
   const eq = polynomialEquivalence(pa.expr, pb.expr);
-  if (eq.result === 'unsupported') return { result: 'unsupported', message: eq.reason ?? 'Cannot verify symbolically.' };
+  if (eq.result === 'unsupported') {
+    return { result: 'unsupported', message: eq.reason ?? t('tool.area.compareUnsupported', { lng: locale }) };
+  }
   return eq.result === 'yes'
-    ? { result: 'yes', message: 'Yes — they are equivalent for every value of the variables.' }
-    : { result: 'no', message: 'No — they differ. Try substituting a value or simplify one of them step by step.' };
+    ? { result: 'yes', message: t('tool.area.compareYes', { lng: locale }) }
+    : { result: 'no', message: t('tool.area.compareNo', { lng: locale }) };
 }
 
 export { coef, parseExpression };

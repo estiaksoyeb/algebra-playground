@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ToolId } from './types';
-import { TOOL_META } from './registry';
+import { TOOL_META, toolText } from './registry';
 import { ToolStateMap, describeFor, stateFromRaw, toRaw } from './toolState';
 import { ToolPanelSwitch } from './panels/ToolPanelSwitch';
 import { useToolHistory } from '../ui/useAppSession';
 import { useAppSession } from '../ui/useAppSession';
 import { takePendingExperiment } from '../ui/experiments';
 import { ExperimentRecord } from '../storage/repositories';
-import { LESSON_BY_ID } from '../content/curriculum';
+import { LESSON_BY_ID, localizedLesson } from '../content/curriculum';
+import { useTranslation } from 'react-i18next';
 import { navigate } from '../ui/router';
 import { Page } from '../ui/Shell';
+import { formatDateTime } from '../i18n';
 
 interface Props {
   tool: ToolId;
@@ -21,8 +23,12 @@ interface Props {
  * links back to related lessons. One tool state drives everything on screen.
  */
 export function ToolWorkspace({ tool, experimentId }: Props) {
+  const { t, i18n } = useTranslation();
   const session = useAppSession();
   const meta = TOOL_META[tool];
+  // Display copy follows the interface language; the maths state and ids never do.
+  const name = toolText(tool, 'name');
+  const description = toolText(tool, 'description');
   const experiments = useMemo(() => session.state.data.experiments.filter((e) => e.tool === tool), [session.state.data.experiments, tool]);
   const [opened, setOpened] = useState<ExperimentRecord | null>(null);
   const [opening, setOpening] = useState(Boolean(experimentId));
@@ -56,10 +62,15 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
       .then((e) => {
         if (openingFor.current !== experimentId) return;
         if (!e) {
-          setNotice({ kind: 'error', text: 'That saved experiment no longer exists. Starting fresh.' });
+          setNotice({ kind: 'error', text: t('tool.experimentMissing') });
           setOpened(null);
         } else if (e.tool !== tool) {
-          setNotice({ kind: 'error', text: `That experiment belongs to the ${TOOL_META[e.tool as ToolId]?.name ?? e.tool} tool. Starting fresh.` });
+          setNotice({
+            kind: 'error',
+            text: t('tool.experimentWrongTool', {
+              tool: e.tool && TOOL_META[e.tool as ToolId] ? toolText(e.tool as ToolId, 'name') : e.tool,
+            }),
+          });
           setOpened(null);
         } else {
           setOpened(e);
@@ -69,7 +80,7 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
       })
       .catch(() => {
         if (openingFor.current !== experimentId) return;
-        setNotice({ kind: 'error', text: 'Could not open the saved experiment — storage was unavailable.' });
+        setNotice({ kind: 'error', text: t('tool.experimentOpenFailed') });
         setOpened(null);
         setOpening(false);
       });
@@ -87,51 +98,53 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
   const saveExperiment = session.saveExperiment;
   const save = useCallback(async () => {
     setSaving(true);
-    const name = saveName.trim() || `${meta.name} ${new Date().toLocaleString()}`;
+    const name = saveName.trim() || `${toolText(tool, 'name')} ${formatDateTime(new Date(), i18n.language)}`;
     const rec = await saveExperiment({ id: opened?.id, name, tool, state: toRaw(state) });
     setSaving(false);
     if (!rec) {
-      setNotice({ kind: 'error', text: 'The experiment was not saved. Storage is unavailable — see Settings.' });
+      setNotice({ kind: 'error', text: t('tool.experimentSaveFailed') });
       return;
     }
     setOpened(rec);
     setSaveName(rec.name);
-    setNotice({ kind: 'ok', text: `Saved “${rec.name}”.` });
+    setNotice({ kind: 'ok', text: t('tool.experimentSaved', { name: rec.name }) });
     if (!opened) navigate(`/playground/${tool}`, { replace: true, query: { exp: rec.id } });
-  }, [saveName, opened, saveExperiment, tool, state, meta.name]);
+  }, [saveName, opened, saveExperiment, tool, state, t, i18n.language]);
 
-  const relatedLessons = meta.relatedLessons.map((id) => LESSON_BY_ID[id]).filter(Boolean);
+  const relatedLessons = meta.relatedLessons
+    .map((id) => (LESSON_BY_ID[id] ? localizedLesson(id, i18n.language) : undefined))
+    .filter((l): l is NonNullable<typeof l> => Boolean(l));
 
   if (opening) {
     return (
       <div className="loading-screen" role="status">
         <div className="spinner" aria-hidden="true" />
-        <p>Opening your saved experiment…</p>
+        <p>{t('tool.openingExperiment')}</p>
       </div>
     );
   }
 
   return (
-    <Page title={meta.name}>
+    <Page title={name}>
       <div className="tool-layout">
         <div className="stack" style={{ minWidth: 0 }}>
-          <nav className="breadcrumb" aria-label="Breadcrumb">
-            <a href="#/playground">Playground</a>
+          <nav className="breadcrumb" aria-label={t('lesson.breadcrumb')}>
+            <a href="#/playground">{t('nav.playground')}</a>
             <span aria-hidden="true">/</span>
-            <span>{meta.name}</span>
+            <span>{name}</span>
           </nav>
-          <div className="tool-tabs" role="tablist" aria-label="Tools">
-            {Object.values(TOOL_META).map((t) => (
+          <div className="tool-tabs" role="tablist" aria-label={t('tool.toolsTablist')}>
+            {Object.values(TOOL_META).map((tab) => (
               <button
-                key={t.id}
+                key={tab.id}
                 type="button"
                 role="tab"
-                aria-selected={t.id === tool}
+                aria-selected={tab.id === tool}
                 onClick={() => {
-                  if (t.id !== tool) navigate(`/playground/${t.id}`);
+                  if (tab.id !== tool) navigate(`/playground/${tab.id}`);
                 }}
               >
-                {t.short}
+                {toolText(tab.id, 'short')}
               </button>
             ))}
           </div>
@@ -139,11 +152,11 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
           <ToolPanelSwitch tool={tool} state={state as never} onChange={(s) => commit(s as never)} onProblem={(m) => setNotice({ kind: 'error', text: m })} />
         </div>
 
-        <aside className="stack" aria-label="Workspace actions">
+        <aside className="stack" aria-label={t('tool.workspaceActions')}>
           <section className="card">
             <div className="btn-row">
               <button type="button" className="btn btn-secondary btn-sm" onClick={undo} disabled={!canUndo} data-testid="undo" aria-keyshortcuts="Control+Z">
-                ↶ Undo
+                ↶ {t('tool.undo')}
               </button>
               <button
                 type="button"
@@ -153,10 +166,10 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
                 data-testid="redo"
                 aria-keyshortcuts="Control+Shift+Z"
               >
-                ↷ Redo
+                ↷ {t('tool.redo')}
               </button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={reset} data-testid="reset-tool">
-                Reset
+                {t('tool.resetShort')}
               </button>
             </div>
             <p className="xsmall muted mt-2 mb-0" data-testid="current-summary">
@@ -166,22 +179,22 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
 
           <section className="card" aria-labelledby="save-experiment">
             <h2 id="save-experiment" style={{ fontSize: 'var(--fs-md)' }}>
-              {opened ? 'Saved experiment' : 'Save this setup'}
+              {opened ? t('tool.savedExperiment') : t('tool.saveThisSetup')}
             </h2>
             <label className="field-label" htmlFor="experiment-name">
-              Name
+              {t('tool.nameLabel')}
             </label>
             <input
               id="experiment-name"
               className="input"
               value={saveName}
               onChange={(e) => setSaveName(e.target.value.slice(0, 80))}
-              placeholder={`${meta.name} on this device`}
+              placeholder={t('tool.experimentPlaceholder', { tool: name })}
               maxLength={80}
               data-testid="experiment-name"
             />
             <button type="button" className="btn btn-block mt-3" onClick={() => void save()} disabled={saving} data-testid="save-experiment">
-              {saving ? 'Saving…' : opened ? 'Update saved experiment' : 'Save experiment'}
+              {saving ? t('tool.savingExperiment') : opened ? t('tool.updateExperiment') : t('tool.saveExperiment')}
             </button>
             {opened && (
               <button
@@ -194,7 +207,7 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
                 }}
                 data-testid="save-as-new"
               >
-                Save as a new experiment
+                {t('tool.saveAsNew')}
               </button>
             )}
             {notice && (
@@ -210,10 +223,10 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
 
           <section className="card" aria-labelledby="tool-experiments">
             <h2 id="tool-experiments" style={{ fontSize: 'var(--fs-md)' }}>
-              This tool’s experiments
+              {t('tool.thisToolsExperiments')}
             </h2>
             {experiments.length === 0 ? (
-              <p className="small muted mb-0">None yet.</p>
+              <p className="small muted mb-0">{t('tool.noneYet')}</p>
             ) : (
               <ul style={{ listStyle: 'none', padding: 0, margin: 0 }} className="stack-sm">
                 {experiments.map((e) => (
@@ -227,7 +240,7 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
                     >
                       <span className="lesson-card-body">
                         <span className="lesson-card-title">{e.name}</span>
-                        <span className="lesson-card-meta">{new Date(e.updatedAt).toLocaleString()}</span>
+                        <span className="lesson-card-meta">{formatDateTime(e.updatedAt, i18n.language)}</span>
                       </span>
                     </button>
                   </li>
@@ -238,10 +251,10 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
 
           <section className="card" aria-labelledby="related-lessons">
             <h2 id="related-lessons" style={{ fontSize: 'var(--fs-md)' }}>
-              Learn the idea
+              {t('tool.learnTheIdea')}
             </h2>
             {relatedLessons.length === 0 ? (
-              <p className="small muted mb-0">No linked lessons.</p>
+              <p className="small muted mb-0">{t('tool.noLinkedLessons')}</p>
             ) : (
               <ul className="small" style={{ paddingLeft: 18, margin: 0 }}>
                 {relatedLessons.map((l) => (
@@ -251,7 +264,7 @@ export function ToolWorkspace({ tool, experimentId }: Props) {
                 ))}
               </ul>
             )}
-            <p className="small muted mt-3 mb-0">{meta.description}</p>
+            <p className="small muted mt-3 mb-0">{description}</p>
           </section>
         </aside>
       </div>

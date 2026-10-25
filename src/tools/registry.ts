@@ -72,3 +72,17 @@ export const TOOL_LIST: ToolMeta[] = Object.values(TOOL_META);
 export function isToolId(v: string): v is ToolId {
   return v in TOOL_META;
 }
+
+/* ------------------------------------------------------------------ localisation
+ * The catalogue above is the English source of truth (tests and lesson links read it
+ * directly). Screens call these helpers so a tool's name and description follow the UI
+ * language; they fall back to the English text, then to the raw id, so nothing renders a
+ * missing-key path.
+ */
+import { t } from '../i18n';
+
+export function toolText(tool: ToolId, field: 'name' | 'short' | 'description'): string {
+  const meta = TOOL_META[tool];
+  if (!meta) return tool;
+  return t(`toolName.${tool}.${field}`, { defaultValue: meta[field] });
+}

@@ -11,6 +11,7 @@ import { GradeResult } from './grading';
 import { MASTERY_CONFIG } from './mastery';
 import { daysUntilDue } from './review';
 import type { ReviewRecord } from '../storage/repositories';
+import { t } from '../i18n';
 
 export interface TutorContext {
   exercise: Exercise;
@@ -42,14 +43,12 @@ export function requestHint(ctx: TutorContext, freeHintsShown = 0): HintResult {
     return { kind: 'hint', text: hints[hintsShown] };
   }
   if (hints.length > 0 && hintsShown === hints.length) {
-    return { kind: 'worked-example', text: 'Here is a full worked example using the same ideas.', workedSteps: workedExample(ctx) };
+    return { kind: 'worked-example', text: t('tutor.workedExampleIntro'), workedSteps: workedExample(ctx) };
   }
   const prereq = ctx.lesson?.remediation;
   return {
     kind: 'remediate',
-    text: prereq
-      ? 'This is a tough one. Try a simpler example first — the idea is the same.'
-      : 'Good effort. Read the worked example closely, then try again.',
+    text: prereq ? t('tutor.remediateWithPrereq') : t('tutor.remediate'),
     prerequisite: prereq,
     workedSteps: workedExample(ctx),
   };
@@ -138,9 +137,7 @@ export function feedbackOnMistake(ctx: TutorContext): { text: string; switchMode
   const repeatedDiagnosis = specificMistake && sameMistake >= 2 && misconception !== undefined;
   if (stuckOnThisQuestion || totalMistakes >= 3) {
     return {
-      text: ctx.lesson?.remediation
-        ? 'Let’s step back and try a simpler idea first. The same rule will make this easier.'
-        : 'Let’s look at this a different way. Work through the example, then try a fresh version.',
+      text: ctx.lesson?.remediation ? t('tutor.stepBackPrereq') : t('tutor.stepBack'),
       switchModel: true,
       simpler: true,
       prerequisite: ctx.lesson?.remediation,
@@ -149,7 +146,10 @@ export function feedbackOnMistake(ctx: TutorContext): { text: string; switchMode
   }
   if (repeatedDiagnosis) {
     return {
-      text: `It looks like the same idea tripped us up again (${misconception.description.toLowerCase()}). Try the visual model: ${misconception.feedback}`,
+      text: t('tutor.repeatedIdea', {
+        description: misconception.description.toLowerCase(),
+        feedback: misconception.feedback,
+      }),
       switchModel: true,
       simpler: false,
       misconceptionText: misconception.feedback,
@@ -159,14 +159,14 @@ export function feedbackOnMistake(ctx: TutorContext): { text: string; switchMode
   // grader's sentence instead of leaving it silently in `misconceptionText`.
   if (misconception) {
     return {
-      text: `${grade?.message ?? 'Not quite — try again.'} ${misconception.feedback}`,
+      text: `${grade?.message ?? t('tutor.notQuite')} ${misconception.feedback}`,
       switchModel: false,
       simpler: false,
       misconceptionText: misconception.feedback,
     };
   }
   return {
-    text: grade?.message ?? 'Not quite — try again.',
+    text: grade?.message ?? t('tutor.notQuite'),
     switchModel: false,
     simpler: false,
     misconceptionText: undefined,
@@ -238,8 +238,8 @@ export function recommendNext(input: {
   if (due.length > 0) {
     return {
       kind: 'review',
-      title: `Review ${due.length} concept${due.length > 1 ? 's' : ''}`,
-      detail: 'A short review now keeps these skills fresh.',
+      title: t('recommend.reviewCount', { count: due.length }),
+      detail: t('recommend.reviewDetail'),
       conceptId: due[0].conceptId,
       urgency: 10,
     };
@@ -247,8 +247,8 @@ export function recommendNext(input: {
   if (input.conceptsNeedingReview.length > 0) {
     return {
       kind: 'review',
-      title: 'Strengthen a shaky concept',
-      detail: 'Some concepts need a little reinforcement before moving on.',
+      title: t('recommend.strengthen'),
+      detail: t('recommend.strengthenDetail'),
       conceptId: input.conceptsNeedingReview[0],
       urgency: 8,
     };
@@ -256,8 +256,8 @@ export function recommendNext(input: {
   if (input.provisionalConcepts.length > 0) {
     return {
       kind: 'mastery-check',
-      title: 'Prove your mastery',
-      detail: 'You are close on a concept — a short mastery check confirms it.',
+      title: t('recommend.prove'),
+      detail: t('recommend.proveDetail'),
       conceptId: input.provisionalConcepts[0],
       urgency: 6,
     };
@@ -265,8 +265,8 @@ export function recommendNext(input: {
   if (input.nextIncompleteLessonId) {
     return {
       kind: 'continue-lesson',
-      title: input.hasAnyProgress ? 'Continue learning' : 'Start your first lesson',
-      detail: input.hasAnyProgress ? 'Pick up where you left off.' : 'The best first step: numbers and counting.',
+      title: input.hasAnyProgress ? t('recommend.continue') : t('recommend.firstLesson'),
+      detail: input.hasAnyProgress ? t('recommend.continueDetail') : t('recommend.firstLessonDetail'),
       lessonId: input.nextIncompleteLessonId,
       urgency: 5,
     };
@@ -275,8 +275,8 @@ export function recommendNext(input: {
   if (upcomingReview) void daysUntilDue(upcomingReview, now);
   return {
     kind: 'playground',
-    title: 'Explore the playground',
-    detail: 'Everything in the curriculum is done. Experiment freely!',
+    title: t('recommend.playground'),
+    detail: t('recommend.playgroundDetail'),
     urgency: 1,
   };
 }
@@ -287,53 +287,60 @@ export function followUpQuestion(misconception?: string, ctx?: Pick<TutorContext
   // misconception id (e.g. a lost minus sign) also occurs on plain arithmetic, where asking
   // "what did you change on the left side?" describes work the learner never did.
   const hasBalance = Boolean(ctx?.exercise.math?.includes('='));
+  // Every sentence lives in the catalogue, so the question is translated in one place and
+  // the English wording never has to be duplicated here.
+  const key = followUpKey(misconception, hasBalance);
+  return t(`tutor.followUp.${key}`);
+}
+
+function followUpKey(misconception: string | undefined, hasBalance: boolean): string {
   switch (misconception) {
     case 'sign-error':
-      return 'Is the result positive or negative? Say it in words: “negative …”.';
+      return 'sign';
     case 'combined-unlike-terms':
-      return 'Which terms have exactly the same variable part? Circle only those.';
+      return 'likeTerms';
     case 'same-side-error':
-      return hasBalance ? 'What did you change on the left side? Now change the right side the same way.' : 'What did you change? Now change the other side the same way.';
+      return hasBalance ? 'sameSide' : 'sameSidePlain';
     case 'inverse-operation-error':
-      return hasBalance
-        ? 'How do you undo subtracting 3? With another subtraction, or with addition?'
-        : 'Which operation would undo this one? Try its inverse.';
+      return hasBalance ? 'inverse' : 'inversePlain';
     case 'coefficient-error':
-      return 'What number multiplies the variable? That number stays with the variable.';
+      return 'coefficient';
     case 'false-equation':
-      return hasBalance ? 'Substitute your answer into the original equation. Are the two sides equal?' : 'Substitute your answer into the original problem and check it.';
+      return hasBalance ? 'checkEquation' : 'checkPlain';
     case 'order-left-to-right':
-      return 'Which operation comes first here: × and ÷, or + and −?';
+      return 'order';
     case 'exponent-as-multiply':
-      return 'Is x² the same as 2x, or is it x · x? Try x = 3 in both.';
+      return 'exponent';
     case 'off-by-one':
-      return 'Count the steps once more. Did you stop one before or one after the last one?';
+      return 'offByOne';
     case 'partial-distribution':
-      return 'Did you multiply by the term straight after the bracket’s plus or minus sign too?';
+      return 'distribution';
     case 'partial-factor':
-      return 'Does your factor divide every term exactly?';
+      return 'factor';
     case 'coordinate-order':
-      return 'Which comes first, across (x) or up (y)?';
+      return 'coordinates';
     case 'no-flip-negative':
-      return 'You divided by a negative number. What happens to the inequality sign?';
+      return 'inequalityFlip';
     case 'line-without-check':
-      return 'Put the x-value into the rule. Does the y-value match the point?';
+      return 'graphCheck';
     default:
-      return 'Can you explain your first step in words?';
+      return 'generic';
   }
 }
 
 export function masteryMessage(state: MasteryState | undefined): string {
-  switch (state) {
-    case 'established':
-      return `Mastered — ${MASTERY_CONFIG.established.independent}+ independent correct answers.`;
-    case 'provisional':
-      return 'Almost there: a short mastery check will confirm this concept.';
-    case 'needs-review':
-      return 'This needs a review. It will come back soon.';
-    case 'practicing':
-      return 'Practising — keep going with less help.';
-    default:
-      return 'Starting this concept.';
+  const key =
+    state === 'established'
+      ? 'established'
+      : state === 'provisional'
+        ? 'provisional'
+        : state === 'needs-review'
+          ? 'needsReview'
+          : state === 'practicing'
+            ? 'practicing'
+            : 'starting';
+  if (key === 'established') {
+    return t('tutor.mastery.established', { count: MASTERY_CONFIG.established.independent });
   }
+  return t(`tutor.mastery.${key}`);
 }

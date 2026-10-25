@@ -28,5 +28,10 @@ export interface ToolModel<S> {
   label: string;
   defaultState: () => S;
   symbolic: (s: S) => SymbolicView;
-  describe: (s: S) => Description;
+  /**
+   * Learner-facing explanation card. `locale` lets a model translate its prose while every
+   * number and variable inside it stays ASCII. Omitted → English, which is what tests and
+   * the English UI use.
+   */
+  describe: (s: S, locale?: string) => Description;
 }

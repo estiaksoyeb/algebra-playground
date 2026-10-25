@@ -191,7 +191,7 @@ export const WORLD6_LESSONS: Lesson[] = [
     summary: 'Two points determine a line; the line shows every solution.',
     conceptIds: ['linear-graphs'],
     prerequisites: ['w6-l2-tables'],
-    objectives: ['Graph y = mx + b.', 'Explain that every point on the line is a solution.', 'Use sliders to explore families of lines.'],
+    objectives: ['Graph y = mx + b.', 'Explain that every point on the line is a solution.', 'Use the slope and intercept steppers to explore families of lines.'],
     steps: [
       {
         type: 'teach',

@@ -1,4 +1,5 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { AppHeader, BottomNav, Page } from './ui/Shell';
 import { HomePage, ProgressPage } from './ui/HomePage';
 import { LearnMapPage } from './ui/LearnPage';
@@ -10,6 +11,7 @@ import { ReviewPage } from './ui/ReviewPage';
 import { useRoute } from './ui/router';
 import { ScrollRestoration } from './ui/ScrollRestoration';
 import { applyTheme, storedTheme, useAppSession } from './ui/useAppSession';
+import { t } from './i18n';
 import { isToolId } from './tools/registry';
 import { ToolWorkspace } from './tools/ToolWorkspace';
 import { EmptyState } from './components/Sheet';
@@ -17,6 +19,7 @@ import { IconBook } from './components/icons';
 
 export function App() {
   const route = useRoute();
+  const { t } = useTranslation();
   const session = useAppSession();
   const { saveStatus, saveError, data } = session.state;
 
@@ -33,19 +36,19 @@ export function App() {
     if (first === 'playground') {
       if (!second) return <PlaygroundPage />;
       if (isToolId(second)) return <ToolWorkspace key={second} tool={second} experimentId={route.query.get('exp') ?? undefined} />;
-      return <NotFound what="tool" />;
+      return <NotFound kind="tool" />;
     }
     if (first === 'progress') return second === 'review' ? <ReviewPage /> : <ProgressPage />;
     if (first === 'settings') return <SettingsPage />;
     if (first === 'help') return <HelpPage />;
-    return <NotFound what="page" />;
+    return <NotFound kind="page" />;
   }, [route]);
 
   return (
     <ErrorBoundary key={route.path}>
       <div className="app-shell">
         <a className="skip-link" href="#main">
-          Skip to content
+          {t('app.skipToContent')}
         </a>
         <AppHeader saveStatus={saveStatus} saveError={saveError} />
         <main className="app-main" id="main" tabIndex={-1}>
@@ -78,17 +81,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
       <div className="app-shell">
         <main className="app-main">
           <div className="page">
-            <Page title="Something went wrong">
+            <Page title={t('app.errorTitle')}>
               <div className="card stack" role="alert">
-                <h1>This screen hit a problem</h1>
-                <p>Your saved progress is safe. Reloading usually fixes it; if not, you can still continue from another screen.</p>
-                <p className="small muted">Details: {this.state.error.message}</p>
+                <h1>{t('app.errorTitle')}</h1>
+                <p>{t('app.errorBody')}</p>
+                <p className="small muted">{t('app.errorDetails', { message: this.state.error.message })}</p>
                 <div className="btn-row">
                   <button type="button" className="btn" onClick={() => window.location.reload()}>
-                    Reload
+                    {t('app.reload')}
                   </button>
                   <a className="btn btn-secondary" href="#/" onClick={() => this.setState({ error: null })}>
-                    Go home
+                    {t('app.goHome')}
                   </a>
                 </div>
               </div>
@@ -100,13 +103,18 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
-function NotFound({ what }: { what: string }) {
+function NotFound({ kind }: { kind: 'tool' | 'page' }) {
+  const { t } = useTranslation();
   return (
-    <Page title="Not found">
-      <EmptyState level={1} icon={<IconBook />} title={`That ${what} does not exist`}>
-        <p>The link may be out of date.</p>
+    <Page title={t('app.notFoundTitle')}>
+      <EmptyState
+        level={1}
+        icon={<IconBook />}
+        title={kind === 'tool' ? t('app.notFoundTool') : t('app.notFoundPage')}
+      >
+        <p>{t('app.notFoundBody')}</p>
         <a className="btn" href="#/">
-          Go home
+          {t('app.backToPlayground')}
         </a>
       </EmptyState>
     </Page>
