@@ -338,14 +338,16 @@ textarea {
 .save-indicator {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--fs-xs);
-  color: var(--ink-muted);
-  padding: 6px 10px;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+  padding: 0 14px;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   background: var(--bg-elevated);
-  min-height: 32px;
+  height: var(--tap);
+  min-height: var(--tap);
   white-space: nowrap;
   animation: saveFadeIn 0.2s ease-out;
 }
