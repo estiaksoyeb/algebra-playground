@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useRoute } from './router';
 import { SaveStatus } from './useSession';
@@ -29,6 +29,24 @@ export function BrandMark() {
 
 export function SaveIndicator({ status, error, onRetry }: { status: SaveStatus; error?: string; onRetry?: () => void }) {
   const { t } = useTranslation();
+  const [visible, setVisible] = useState(() => status === 'saving' || status === 'saved' || status === 'error');
+
+  useEffect(() => {
+    if (status === 'saving' || status === 'error') {
+      setVisible(true);
+    } else if (status === 'saved') {
+      setVisible(true);
+      const timer = setTimeout(() => {
+        setVisible(false);
+      }, 2500);
+      return () => clearTimeout(timer);
+    } else {
+      setVisible(false);
+    }
+  }, [status]);
+
+  if (!visible) return null;
+
   const label =
     status === 'saving'
       ? t('save.saving')

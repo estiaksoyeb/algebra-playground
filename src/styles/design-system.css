@@ -347,6 +347,17 @@ textarea {
   background: var(--bg-elevated);
   min-height: 32px;
   white-space: nowrap;
+  animation: saveFadeIn 0.2s ease-out;
+}
+@keyframes saveFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .save-indicator[data-status='error'] {
   color: var(--danger);
