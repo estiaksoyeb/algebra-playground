@@ -7,6 +7,7 @@ import { AttemptRecord, MasteryRecord } from '../storage/repositories';
 import { MathView as Math } from './MathComp';
 import { useTranslation } from 'react-i18next';
 import { normalizeMathInput } from '../i18n/normalizeMathInput';
+import { insertFractionSlash, readFraction, wantsFractionInput } from './fractionAnswer';
 
 export interface ExerciseProps {
   exercise: Exercise;
@@ -79,6 +80,10 @@ export function ExerciseCard({
   const [rehearsing, setRehearsing] = useState(false);
   const [rehearsalRaw, setRehearsalRaw] = useState('');
   const liveRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  /** This question is about fractions, so "/" must be typeable on any keyboard. */
+  const fractionInput = wantsFractionInput(ex);
+  const fractionReadout = fractionInput ? readFraction(raw) : null;
 
   // Reset only when the exercise itself changes (or is locked from outside).
   useEffect(() => {
@@ -173,7 +178,26 @@ export function ExerciseCard({
         ? t('exercise.placeholderCoordinate')
         : ex.kind === 'expression'
           ? t('exercise.placeholderExpression')
-          : t('exercise.placeholderNumeric');
+          : fractionInput
+            ? t('exercise.placeholderFraction')
+            : t('exercise.placeholderNumeric');
+
+  /**
+   * Types "/" at the cursor. The keypad button and the "/" key on a phone keyboard both come
+   * here, so a fraction answer never depends on which keypad the device decided to show.
+   */
+  const typeSlash = () => {
+    const node = inputRef.current;
+    const next = insertFractionSlash(raw, node?.selectionStart ?? null, node?.selectionEnd ?? null);
+    if (next === null) return;
+    setRaw(normalizeMathInput(next));
+    // Put the caret after the slash once React has rendered the new value.
+    requestAnimationFrame(() => {
+      const caret = next.indexOf('/') + 1;
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(caret, caret);
+    });
+  };
 
   const tutorHeading =
     tutor?.kind === 'worked-example'
@@ -239,21 +263,44 @@ export function ExerciseCard({
           </label>
           <input
             id={inputId}
+            ref={inputRef}
             className="input answer-input"
             value={raw}
             // A Bengali keyboard types ০-৯; convert as it is typed so the box always shows
             // the ASCII the grader reads.
             onChange={(e) => setRaw(normalizeMathInput(e.target.value))}
-            inputMode={ex.kind === 'numeric' || ex.kind === 'value-of-variable' ? 'decimal' : 'text'}
+            // The decimal keypad has no "/" on most phones, so a fraction question must ask for
+            // a text keyboard to be answerable at all.
+            inputMode={ex.kind === 'numeric' || ex.kind === 'value-of-variable' ? (fractionInput ? 'text' : 'decimal') : 'text'}
             autoCapitalize="off"
             autoComplete="off"
             autoCorrect="off"
             spellCheck={false}
             placeholder={placeholder}
             disabled={solved || busy || pending}
-            aria-describedby={grade ? `${inputId}-feedback` : undefined}
+            aria-describedby={[grade ? `${inputId}-feedback` : '', fractionReadout ? `${inputId}-fraction-readout` : ''].filter(Boolean).join(' ') || undefined}
             data-testid="answer-input"
           />
+          {fractionInput && (
+            <div className="btn-row" data-testid="fraction-help">
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={typeSlash}
+                disabled={solved || busy || pending || raw.includes('/')}
+                aria-label={t('exercise.fractionSlash')}
+                data-testid="fraction-slash"
+              >
+                a/b
+              </button>
+              <span className="small muted">{t('exercise.fractionHint')}</span>
+            </div>
+          )}
+          {fractionReadout && (
+            <span className="sr-only" id={`${inputId}-fraction-readout`} data-testid="fraction-readout">
+              {fractionReadout}
+            </span>
+          )}
           <div className="btn-row">
             <button type="submit" className="btn" disabled={solved || busy || pending || !raw.trim()} data-testid="submit-answer">
               {submitLabel ?? t('exercise.checkAnswer')}
